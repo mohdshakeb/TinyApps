@@ -1,10 +1,16 @@
 import { shareOrDownload } from '../share/shareSheet.js'
 
-export function mountShareScreen(root, { imageUrl, blob, onDone }) {
+export function mountShareScreen(root, { mediaUrl, blob, onDone }) {
+  const isVideo = blob.type.startsWith('video/')
+
   const el = document.createElement('div')
   el.className = 'screen-preview screen-share'
   el.innerHTML = `
-    <img class="preview-image" src="${imageUrl}" alt="Your Wildstone Edge aura" />
+    ${
+      isVideo
+        ? `<video class="preview-image" src="${mediaUrl}" autoplay loop muted playsinline></video>`
+        : `<img class="preview-image" src="${mediaUrl}" alt="Your Wildstone Edge aura" />`
+    }
     <div class="preview-actions">
       <button type="button" class="btn-primary" data-action="share">Share</button>
       <button type="button" class="btn-secondary" data-action="done">Done</button>

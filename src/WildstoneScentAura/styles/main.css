@@ -163,6 +163,12 @@ html, body {
   border: 4px solid rgba(232, 232, 255, 0.85);
   border-radius: 50%;
   background: rgba(10, 10, 15, 0.35);
+  /* A long-press gesture drives video capture -- these stop iOS Safari's
+     press-and-hold text-selection callout from hijacking it. */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .capture-btn::before {
@@ -171,7 +177,7 @@ html, body {
   inset: 6px;
   border-radius: 50%;
   background: #e8e8ff;
-  transition: background 150ms ease;
+  transition: background 150ms ease, border-radius 150ms ease;
 }
 
 .capture-btn:active {
@@ -180,6 +186,21 @@ html, body {
 
 .capture-btn:active::before {
   background: #4fc3ff;
+}
+
+.capture-btn.recording {
+  border-color: #ff5a5a;
+  animation: recording-pulse 1s ease-in-out infinite;
+}
+
+.capture-btn.recording::before {
+  border-radius: 10px;
+  background: #ff5a5a;
+}
+
+@keyframes recording-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 90, 90, 0.45); }
+  50% { box-shadow: 0 0 0 10px rgba(255, 90, 90, 0); }
 }
 
 .screen-preview {

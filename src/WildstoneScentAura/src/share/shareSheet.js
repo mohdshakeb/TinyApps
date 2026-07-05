@@ -1,11 +1,22 @@
 const SHARE_TITLE = 'Wildstone Edge Aura'
 const SHARE_TEXT = '#IntensifyYourGame'
 
+const EXTENSIONS = {
+  'image/png': 'png',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+}
+
+function extensionFor(mimeType) {
+  const base = mimeType.split(';')[0] // strip codec params, e.g. 'video/webm;codecs=vp9'
+  return EXTENSIONS[base] ?? 'bin'
+}
+
 // Native Web Share sheet where supported (most mobile browsers, the actual
 // demo target); falls back to an instant download link everywhere else
 // (desktop, or a mobile browser without file-share support). Per the PRD:
 // "A native Web Share sheet or instant download link".
-export async function shareOrDownload(blob, filename = 'wildstone-aura.png') {
+export async function shareOrDownload(blob, filename = `wildstone-aura.${extensionFor(blob.type)}`) {
   const file = new File([blob], filename, { type: blob.type })
 
   if (navigator.canShare?.({ files: [file] })) {

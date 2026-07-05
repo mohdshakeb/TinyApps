@@ -3,8 +3,12 @@ import { EdgeVariant } from '../aura/EdgeVariant.js'
 import { detectionsToAnchor } from '../tracking/faceAnchor.js'
 import { mapCoverPoint, mirrorX } from '../utils/coverCrop.js'
 import { captureSnapshot } from '../capture/snapshotCapture.js'
+import { startVideoCapture, isVideoCaptureSupported } from '../capture/videoCapture.js'
+import { ENABLE_VIDEO_CAPTURE } from '../capture/captureFeatureFlags.js'
 
 const isDebug = new URLSearchParams(location.search).get('debug') === '1'
+const LONG_PRESS_MS = 350
+const videoCaptureReady = ENABLE_VIDEO_CAPTURE && isVideoCaptureSupported()
 
 export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   videoEl.style.display = 'block'
@@ -19,7 +23,55 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   captureBtn.className = 'capture-btn'
   captureBtn.setAttribute('aria-label', 'Capture')
   root.appendChild(captureBtn)
+
+  // Tap = snapshot, long-press = video (PRD). A held press only *becomes* a
+  // recording after LONG_PRESS_MS -- a quick tap never starts one, so the
+  // 'click' handler below is the tap path. `longPressEngaged` suppresses
+  // that same 'click' (which still fires natively after the press releases)
+  // once a recording has already handled the capture itself.
+  let pressTimer = null
+  let longPressEngaged = false
+  let activeRecording = null
+
+  function armLongPress() {
+    if (!videoCaptureReady) return
+    pressTimer = setTimeout(() => {
+      pressTimer = null
+      longPressEngaged = true
+      beginRecording()
+    }, LONG_PRESS_MS)
+  }
+
+  function beginRecording() {
+    captureBtn.classList.add('recording')
+    activeRecording = startVideoCapture({ width: auraCanvas.width, height: auraCanvas.height, videoEl, auraCanvas })
+    activeRecording.done
+      .then((blob) => onCapture(blob))
+      .catch((err) => console.error('[videoCapture] failed:', err))
+      .finally(() => {
+        captureBtn.classList.remove('recording')
+        activeRecording = null
+      })
+  }
+
+  function endPress() {
+    if (pressTimer) {
+      clearTimeout(pressTimer)
+      pressTimer = null
+    }
+    activeRecording?.stop()
+  }
+
+  captureBtn.addEventListener('pointerdown', armLongPress)
+  captureBtn.addEventListener('pointerup', endPress)
+  captureBtn.addEventListener('pointercancel', endPress)
+  captureBtn.addEventListener('pointerleave', endPress)
+
   captureBtn.addEventListener('click', async () => {
+    if (longPressEngaged) {
+      longPressEngaged = false // consumed -- the recording's own onCapture already fired
+      return
+    }
     const blob = await captureSnapshot({ width: auraCanvas.width, height: auraCanvas.height, videoEl, auraCanvas })
     onCapture(blob)
   })
@@ -80,6 +132,7 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
     drawDetections,
     unmount() {
       window.removeEventListener('resize', resize)
+      endPress() // stop an in-flight recording rather than leak its rAF loop + open stream
       renderer.stop()
       videoEl.style.display = 'none'
       auraCanvas.remove()

@@ -160,3 +160,26 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 
 **Scope correction from that retest:** capture was never meant to be reachable from the Touch Canvas fallback — that screen's job is purely to convey "camera required" (with the finger-drag aura as visual insurance, not a capture-worthy experience). Removed the capture button and its wiring from `TouchCanvasFallbackScreen.js`; `FALLBACK_TOUCH_CANVAS` now has no outgoing transitions in `appStateMachine.js` (capture is only reachable from `LIVE_AURA`). Since only one branch can reach `CAPTURE_PREVIEW` now, the `captureOrigin`/`RETURN_TO_ORIGIN` mechanism added earlier this session for exactly this multi-branch case was no longer needed — reverted `RETRY`/`DONE` back to a plain hardcoded `LIVE_AURA` target, and simplified the FSM back to a flat lookup table. Updated `stateMachine.spec.js` and `shareSheet.spec.js` (now asserts no capture button renders on the fallback screen) to match; `npm run test:unit` (9/9), `npx playwright test` (2/2), and `npm run build` all still green.
 **Still open:** `navigator.share`'s actual native-sheet behavior and the composite-against-a-real-face visual quality (items 1-2 above) remain to be confirmed; item 3 is now resolved and superseded by this scope correction.
+
+---
+
+## Session 5 addendum — Video capture built ahead of the iPhone spike
+
+**Date:** 2026-07-05
+
+**Decision to build now, before Session 1:** still no iPhone available, but built `videoCapture.js` now rather than waiting, on the explicit understanding that desktop Safari testing is a partial substitute at best — real risk retirement still requires a real iPhone. `ENABLE_VIDEO_CAPTURE` is set `true` to allow that desktop-Safari pass; the flag's comment in `captureFeatureFlags.js` spells out that "desktop-Safari-passing" is not the same claim as "demo-safe."
+
+**Done:**
+- `src/capture/compositeFrame.js` — extracted the per-frame draw (mirrored/cover-cropped video + aura canvas + watermark) out of `snapshotCapture.js` so both a still frame and a recorded video frame are drawn identically, instead of duplicating that logic.
+- `src/capture/videoCapture.js` — `startVideoCapture()` runs its own rAF loop compositing onto an offscreen canvas, feeds `canvas.captureStream(30)` into a `MediaRecorder`, picks the first supported mimeType from `['video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']` (Safari only supports the mp4 entry; Chrome/Firefox/Android take a webm variant), and auto-stops at 5s (PRD: "5-second looping video") or earlier via a returned `stop()`. `isVideoCaptureSupported()` guards on `MediaRecorder`/`captureStream` actually existing, independent of the feature flag.
+- `LiveAuraScreen.js` — long-press gesture (350ms threshold) on the capture button: a quick tap still triggers `captureSnapshot()` exactly as before; holding past the threshold starts a recording (button ring turns red/pulses), which ends on release or at the 5s cap, whichever comes first. Guarded against the native `click` event that still fires after a long-press release ending up double-triggering a snapshot on top of the video.
+- `CapturePreviewScreen.js`/`ShareScreen.js` now render a looping muted `<video>` instead of an `<img>` when the captured blob's mimeType starts with `video/`; `shareSheet.js` now derives the right file extension (`.mp4`/`.webm`/`.png`) from the blob's mimeType instead of a hardcoded `.png`.
+
+**Verified so far:** `npm run test:unit` (9/9), `npx playwright test` (2/2), `npm run build` all still green (none of this session's e2e coverage touches video capture directly, since headless Chromium has no fake camera device wired into this repo's Playwright config — same gap already tracked above for the camera branch generally).
+
+**Not yet confirmed on any real device** — this is the biggest open risk in the app right now:
+1. Real iPhone (the actual Session 1 spike this was built ahead of) — still not available.
+2. Real Android — the device this project *does* have available for testing has not tested video capture yet (only the camera/perf/aura work in Sessions 2-4 was Android-confirmed). Since Android Chrome has long-standing solid `MediaRecorder`/webm support, this is expected to work, but "expected" isn't "confirmed."
+3. Desktop Safari — informal manual test in progress as of this entry; result not yet logged.
+
+**Next:** deploy and test on the real Android device (available now) and manually on Mac Safari before treating this as anything more than "built, not yet demo-safe." If Android fails, that's a more urgent signal than a desktop-Safari pass either way, since Android is this project's actual tested-and-working camera/perf baseline.

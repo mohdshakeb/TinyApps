@@ -70,7 +70,8 @@ function render(state) {
     case States.CAPTURE_PREVIEW:
       setScreen(
         mountCapturePreviewScreen(root, {
-          imageUrl: capturedUrl,
+          mediaUrl: capturedUrl,
+          blob: capturedBlob,
           onRetry: () => {
             revokeCapture()
             machine.send('RETRY')
@@ -83,7 +84,7 @@ function render(state) {
     case States.SHARE:
       setScreen(
         mountShareScreen(root, {
-          imageUrl: capturedUrl,
+          mediaUrl: capturedUrl,
           blob: capturedBlob,
           onDone: () => {
             revokeCapture()
