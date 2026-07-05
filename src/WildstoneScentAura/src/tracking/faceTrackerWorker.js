@@ -7,15 +7,20 @@ let faceDetector = null
 const ready = init()
 
 async function init() {
-  const filesetResolver = await FilesetResolver.forVisionTasks(WASM_BASE_PATH)
-  faceDetector = await FaceDetector.createFromOptions(filesetResolver, {
-    baseOptions: {
-      modelAssetPath: MODEL_PATH,
-      delegate: 'GPU',
-    },
-    runningMode: 'VIDEO',
-  })
-  postMessage({ type: 'ready' })
+  try {
+    const filesetResolver = await FilesetResolver.forVisionTasks(WASM_BASE_PATH)
+    faceDetector = await FaceDetector.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: MODEL_PATH,
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+    })
+    postMessage({ type: 'ready' })
+  } catch (err) {
+    postMessage({ type: 'init-error', message: err?.message || String(err) })
+    throw err
+  }
 }
 
 self.onmessage = async (event) => {

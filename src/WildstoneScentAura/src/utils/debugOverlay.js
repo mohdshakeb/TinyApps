@@ -38,7 +38,10 @@ export function initDebugOverlay() {
 
   function stringify(args) {
     return args
-      .map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a)))
+      .map((a) => {
+        if (a instanceof Error) return `${a.name}: ${a.message}`
+        return typeof a === 'object' ? JSON.stringify(a) : String(a)
+      })
       .join(' ')
   }
 

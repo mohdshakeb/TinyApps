@@ -7,14 +7,19 @@ let workerReady = false
 let busy = false
 
 export function initFaceTracker() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     worker = new Worker(new URL('./faceTrackerWorker.js', import.meta.url), {
       type: 'module',
     })
+    worker.onerror = (event) => {
+      reject(new Error(event.message || 'faceTrackerWorker failed to load'))
+    }
     worker.onmessage = (event) => {
       if (event.data.type === 'ready' && !workerReady) {
         workerReady = true
         resolve()
+      } else if (event.data.type === 'init-error' && !workerReady) {
+        reject(new Error(event.data.message))
       }
     }
   })
