@@ -46,7 +46,15 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - Built `src/utils/perfMonitor.js`: tracks main-thread rAF frame rate and rolling-average `detectForVideo()` latency, reports via `console.log` once/sec (visible in the `?debug=1` overlay).
 - Wired into `faceTracker.js`'s detection loop: `tickFrame()` called every rAF tick (measures overall main-thread FPS, not just detection-loop rate), latency measured around each `detectForVideo()` call.
 
+**Real-device result:** on Android, `mainThreadFps` swung between 30-57 (should be ~60) with `avgDetectLatency` at 20-35ms, using nothing but the camera feed — no aura yet. That's ~300-500ms/sec of main-thread blocking from `detectForVideo()` alone at the ~15Hz throttle. Go/no-go call: **main-thread-only is not sufficient** — this would show up as visible stutter once Session 4 adds a 60fps particle system on top. Full reasoning logged in `Planning/CONTEXT.md`.
+
+**Built the Worker offload (pulled forward from "conditional" to committed, now):**
+- `src/tracking/faceTrackerWorker.js` — runs `FilesetResolver`/`FaceDetector` init and `detectForVideo` entirely inside a module Worker.
+- `src/tracking/faceTracker.js` — rewritten: main thread now only captures `createImageBitmap(videoEl)` per detection tick and transfers it to the worker (transferable, zero-copy); receives detection results back via `worker.onmessage`. A `busy` flag prevents queueing more frames than the worker can keep up with.
+- `perfMonitor.js`'s `avgDetectLatency` now measures worker round-trip time (postMessage → worker inference → postMessage back), not raw inference time — a fair real-world number since none of it blocks the main thread anymore.
+- Side benefit confirmed in build output: main entry JS chunk dropped from ~139KB to ~3.5KB — `@mediapipe/tasks-vision`'s JS wrapper now bundles into the worker chunk (`faceTrackerWorker-*.js`, ~135KB), which only loads when the worker is instantiated.
+- Verified locally: `npm run build` succeeds, dev server serves both the main bundle and the worker module correctly (HTTP 200).
+
 **Not yet done:**
-- Actual real-device numbers — need you to open `https://tiny-apps.vercel.app/?debug=1` on the Android device again and report what the `[perf] mainThreadFps=... avgDetectLatency=...ms` lines show after a few seconds of the camera tracking your face.
-- Based on those numbers: decide whether the current ~15Hz detection throttle + main-thread-only approach is sufficient, or whether a Worker/OffscreenCanvas split is needed (per the conditional architecture decision in `Planning/CONTEXT.md`).
+- Real-device confirmation that `mainThreadFps` now stays near 60 with the Worker offload — need you to retest `https://tiny-apps.vercel.app/?debug=1` on Android once this is deployed.
 - iPhone half of this session (perf on real iOS hardware) — deferred until an iPhone is available.

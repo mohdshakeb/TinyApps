@@ -1,34 +1,44 @@
-import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision'
 import { tickFrame, recordDetectionLatency } from '../utils/perfMonitor.js'
 
-const WASM_BASE_PATH = '/mediapipe/wasm'
-const MODEL_PATH = '/mediapipe/models/blaze_face_short_range.tflite'
 const DETECT_INTERVAL_MS = 1000 / 15
 
-let faceDetector = null
+let worker = null
+let workerReady = false
+let busy = false
 
-export async function initFaceTracker() {
-  const filesetResolver = await FilesetResolver.forVisionTasks(WASM_BASE_PATH)
-  faceDetector = await FaceDetector.createFromOptions(filesetResolver, {
-    baseOptions: {
-      modelAssetPath: MODEL_PATH,
-      delegate: 'GPU',
-    },
-    runningMode: 'VIDEO',
+export function initFaceTracker() {
+  return new Promise((resolve) => {
+    worker = new Worker(new URL('./faceTrackerWorker.js', import.meta.url), {
+      type: 'module',
+    })
+    worker.onmessage = (event) => {
+      if (event.data.type === 'ready' && !workerReady) {
+        workerReady = true
+        resolve()
+      }
+    }
   })
 }
 
 export function startDetectionLoop(videoEl, onDetections) {
   let lastDetectTime = 0
+  let pendingStart = 0
 
-  function tick(now) {
+  worker.onmessage = (event) => {
+    if (event.data.type !== 'detections') return
+    recordDetectionLatency(performance.now() - pendingStart)
+    busy = false
+    onDetections(event.data.detections)
+  }
+
+  async function tick(now) {
     tickFrame()
-    if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
+    if (!busy && now - lastDetectTime >= DETECT_INTERVAL_MS) {
       lastDetectTime = now
-      const detectStart = performance.now()
-      const result = faceDetector.detectForVideo(videoEl, now)
-      recordDetectionLatency(performance.now() - detectStart)
-      onDetections(result.detections)
+      busy = true
+      pendingStart = performance.now()
+      const bitmap = await createImageBitmap(videoEl)
+      worker.postMessage({ type: 'frame', bitmap, timestamp: now }, [bitmap])
     }
     requestAnimationFrame(tick)
   }
