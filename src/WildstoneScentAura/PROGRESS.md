@@ -68,8 +68,32 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 
 **Brave: `NotAllowedError: Permission denied`, no prompt shown at all.** This is browser/device permission state, not a code issue — no prompt means Brave already has a persisted "block" decision for this origin from earlier testing. Needs the user to reset Camera to "Ask"/"Allow" in Brave's site settings (tap address bar → site info → Permissions) and reload; nothing to fix in the app for this one.
 
+**Retest on Chrome (Android) confirms the fix — Session 2 (Android half) DONE:**
+- Tracker now initializes past "Loading face tracker…" with no error.
+- `mainThreadFps` holds steady at **60** with the Worker offload live. `avgDetectLatency` fluctuates ~20-31ms per call — expected variance, and no longer a concern since that cost is isolated to the worker thread and doesn't block the main-thread render loop (the whole point of the offload). Go/no-go: **Worker offload confirmed sufficient on real Android hardware.**
+
+**Still open (not blocking further sessions):**
+- Brave on this Android device still denies camera permission with no prompt (persisted site-permission/Shields state from earlier testing, not a code issue) — needs the user to reset it in Brave's site settings. Chrome is confirmed working, which is sufficient to proceed.
+- iPhone half of Session 2 (perf spike) and all of Session 1 (iOS video-capture spike) — still deferred until an iPhone is available, per the sequencing change logged in Session 0. Nothing else in the plan is blocked by this.
+
+---
+
+## Session 3 — State machine + screen shell
+
+**Date:** 2026-07-05
+
+**Done:**
+- `src/state/appStateMachine.js` — pure, DOM-free FSM (`createStateMachine`/`States`) implementing the full state graph from `Planning/WildstoneScentAura_Plan.md` (SPLASH → PERMISSION_REQUEST → CAMERA_INITIALIZING → LIVE_AURA → CAPTURE_PREVIEW → SHARE, plus the FALLBACK_TOUCH_CANVAS branches from PERMISSION_REQUEST/CAMERA_INITIALIZING/LIVE_AURA). Unknown events are a no-op; an `onTransition({ from, to, event })` callback drives rendering.
+- `src/screens/` — `SplashScreen.js`, `PermissionScreen.js` (shared loading UI for both PERMISSION_REQUEST and CAMERA_INITIALIZING, swapping status text), `LiveAuraScreen.js` (shows the camera feed + a debug bounding-box canvas overlay, replacing the old console-log-only detection output), `TouchCanvasFallbackScreen.js` (placeholder copy for now — the actual finger-drag aura interaction is Session 4's job, per the plan's touch/aura shared-anchor-interface decision).
+- `src/main.js` rewritten as the composition root: owns the FSM instance, mounts/unmounts the screen for the current state, and triggers the async side effects each state needs (`requestCamera()` on PERMISSION_REQUEST, `loadTracker()` on CAMERA_INITIALIZING), feeding results back via `machine.send(...)`. Also wires the camera track's `ended` event to `CAMERA_LOST`, so the camera dying mid-session now correctly falls back to Touch Canvas instead of leaving a frozen frame on screen.
+- `index.html`/`styles/main.css` updated: removed the old static `#status` div (superseded by `PermissionScreen`), camera feed now hidden until `LIVE_AURA` mounts it, added screen/button/spinner styling (dark tinted background, electric-blue accent per the Edge variant, no purple gradients/pure black/animations over 300ms).
+- **Tests, both passing:**
+  - `tests/e2e/stateMachine.spec.js` — 9 cases via `node --test` (`npm run test:unit`), covering the happy path, all three fallback triggers (denied/init-failed/camera-lost), the capture/share loop, Touch Canvas reusing that same loop, unknown-event no-ops, and the `onTransition` payload shape.
+  - `tests/e2e/fallback.spec.js` — Playwright test (`npm run test:e2e`) driving the real UI: clicks Start with no camera permission granted and no fake-device flag, asserts the Touch Canvas screen becomes visible. In this sandbox the browser has no camera device at all, so the actual error was `NotFoundError` rather than `NotAllowedError` — same catch-all path, confirms `requestCamera()`'s fallback isn't permission-error-specific.
+  - Added `@playwright/test` as a devDependency + `playwright.config.js` (ignores `stateMachine.spec.js` so the two test runners don't collide over the same folder); `.gitignore` updated for `playwright-report`/`test-results`.
+- Manually verified visually (desktop, via a Playwright screenshot script, not committed): Splash and Touch Canvas Fallback screens both render as intended.
+
 **Not yet done:**
-- Real-device retest on Chrome (Android) — confirm the classic-worker fix actually resolves `ModuleFactory not set` and the tracker loads end-to-end.
-- Brave: user to reset site camera permission, then retest.
-- Once tracker init succeeds: confirm `mainThreadFps` stays near 60 with the Worker offload (still not yet confirmed on real device).
-- iPhone half of this session (perf on real iOS hardware) — deferred until an iPhone is available.
+- Manual navigation on a **real phone** (only verified on desktop/headless so far) — the plan's actual "done when" criteria requires this. Next real-device retest should confirm Splash → Start → (permission/loading) → Live Aura with the debug bounding-box overlay drawing correctly, on Android at least.
+- `LiveAuraScreen`'s bounding-box coordinate mapping is an approximation (ignores the `object-fit: cover` crop offset) — fine for a debug overlay, but Session 4's real aura anchor will need exact cover-crop math.
+- Capture/Share screens and the Touch Canvas drag interaction are intentionally not built yet — Sessions 4 and 5.

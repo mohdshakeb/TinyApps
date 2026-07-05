@@ -1,36 +1,75 @@
 import { startCameraStream } from './camera/cameraStream.js'
 import { initFaceTracker, startDetectionLoop } from './tracking/faceTracker.js'
 import { initDebugOverlay } from './utils/debugOverlay.js'
+import { createStateMachine, States } from './state/appStateMachine.js'
+import { mountSplashScreen } from './screens/SplashScreen.js'
+import { mountPermissionScreen } from './screens/PermissionScreen.js'
+import { mountLiveAuraScreen } from './screens/LiveAuraScreen.js'
+import { mountTouchCanvasFallbackScreen } from './screens/TouchCanvasFallbackScreen.js'
 
 initDebugOverlay()
 
+const root = document.getElementById('app')
 const videoEl = document.getElementById('camera-feed')
-const statusEl = document.getElementById('status')
 
-function setStatus(text) {
-  statusEl.textContent = text
+let currentScreen = null
+function setScreen(screen) {
+  currentScreen?.unmount()
+  currentScreen = screen
 }
 
-async function boot() {
-  try {
-    setStatus('Requesting camera permission…')
-    await startCameraStream(videoEl)
+const machine = createStateMachine(States.SPLASH, {
+  onTransition: ({ to }) => render(to),
+})
 
-    setStatus('Loading face tracker…')
-    await initFaceTracker()
+function render(state) {
+  switch (state) {
+    case States.SPLASH:
+      setScreen(mountSplashScreen(root, { onStart: () => machine.send('START') }))
+      break
 
-    setStatus('Tracking — check console for detections')
-    let lastDetectionCount = -1
-    startDetectionLoop(videoEl, (detections) => {
-      if (detections.length !== lastDetectionCount) {
-        lastDetectionCount = detections.length
-        console.log(`[faceTracker] detection count changed: ${detections.length}`)
-      }
-    })
-  } catch (err) {
-    console.error('[boot] failed:', err)
-    setStatus(`Error: ${err.message}`)
+    case States.PERMISSION_REQUEST:
+      setScreen(mountPermissionScreen(root, { statusText: 'Requesting camera permission…' }))
+      requestCamera()
+      break
+
+    case States.CAMERA_INITIALIZING:
+      setScreen(mountPermissionScreen(root, { statusText: 'Loading face tracker…' }))
+      loadTracker()
+      break
+
+    case States.LIVE_AURA: {
+      const screen = mountLiveAuraScreen(root, { videoEl })
+      setScreen(screen)
+      startDetectionLoop(videoEl, (detections) => screen.drawDetections(detections))
+      break
+    }
+
+    case States.FALLBACK_TOUCH_CANVAS:
+      setScreen(mountTouchCanvasFallbackScreen(root))
+      break
   }
 }
 
-boot()
+async function requestCamera() {
+  try {
+    const stream = await startCameraStream(videoEl)
+    stream.getVideoTracks()[0].addEventListener('ended', () => machine.send('CAMERA_LOST'))
+    machine.send('GRANTED')
+  } catch (err) {
+    console.error('[camera] permission failed:', err)
+    machine.send('DENIED')
+  }
+}
+
+async function loadTracker() {
+  try {
+    await initFaceTracker()
+    machine.send('READY')
+  } catch (err) {
+    console.error('[tracker] init failed:', err)
+    machine.send('FAILED')
+  }
+}
+
+render(machine.getState())
