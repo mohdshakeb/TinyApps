@@ -8,6 +8,16 @@ export const States = Object.freeze({
   FALLBACK_TOUCH_CANVAS: 'FALLBACK_TOUCH_CANVAS',
 })
 
+// CAPTURE_PREVIEW/SHARE are reached from either LIVE_AURA or
+// FALLBACK_TOUCH_CANVAS (Session 5 reuses one capture/share flow for both
+// branches). RETRY and DONE need to hand the user back to whichever branch
+// they captured from, not always LIVE_AURA -- otherwise a camera-denied user
+// who captures from the fallback screen gets bounced into a state that
+// needs a camera they don't have. RETURN_TO_ORIGIN is a sentinel the lookup
+// table can point at instead of a fixed state.
+const RETURN_TO_ORIGIN = Symbol('RETURN_TO_ORIGIN')
+const CAPTURE_ORIGINS = new Set([States.LIVE_AURA, States.FALLBACK_TOUCH_CANVAS])
+
 const TRANSITIONS = {
   [States.SPLASH]: {
     START: States.PERMISSION_REQUEST,
@@ -25,11 +35,11 @@ const TRANSITIONS = {
     CAMERA_LOST: States.FALLBACK_TOUCH_CANVAS,
   },
   [States.CAPTURE_PREVIEW]: {
-    RETRY: States.LIVE_AURA,
+    RETRY: RETURN_TO_ORIGIN,
     CONFIRM: States.SHARE,
   },
   [States.SHARE]: {
-    DONE: States.LIVE_AURA,
+    DONE: RETURN_TO_ORIGIN,
   },
   [States.FALLBACK_TOUCH_CANVAS]: {
     CAPTURE: States.CAPTURE_PREVIEW,
@@ -38,15 +48,22 @@ const TRANSITIONS = {
 
 export function createStateMachine(initial = States.SPLASH, { onTransition } = {}) {
   let current = initial
+  let captureOrigin = States.LIVE_AURA
 
   function getState() {
     return current
   }
 
   function send(event) {
-    const next = TRANSITIONS[current]?.[event]
-    if (!next) return current
+    const mapped = TRANSITIONS[current]?.[event]
+    if (!mapped) return current
+
     const from = current
+    if (event === 'CAPTURE' && CAPTURE_ORIGINS.has(from)) {
+      captureOrigin = from
+    }
+
+    const next = mapped === RETURN_TO_ORIGIN ? captureOrigin : mapped
     current = next
     onTransition?.({ from, to: next, event })
     return current

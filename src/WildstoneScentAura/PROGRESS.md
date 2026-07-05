@@ -129,3 +129,29 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - **Fix:** `EdgeVariant.createParticle` now spawns each particle on a ring around the anchor (`RING_RADIUS_FRACTION = 0.18` of `min(canvas width, height)`, scaled by `anchor.scale`) and continues the jagged arc radially outward from there, instead of from dead-center. Required threading `width`/`height` through `particleSystem.js`'s call to `createParticle` so a variant can size a spawn radius relative to the canvas. Rebuilt, unit suite still green (9/9), pushed as a follow-up commit — **not yet re-confirmed on device.**
 
 **Retest of the ring-spawn fix (Android) — confirmed good, no further changes requested.** The aura now frames around the face rather than sitting on it; `RING_RADIUS_FRACTION = 0.18` and `REFERENCE_FACE_FRACTION = 0.35` are both fine as-is for now. **Session 4 is done** on Android; iPhone testing remains part of the standing deferred-until-hardware-available gap from Sessions 1-2. Further visual tuning (if any) is Session 7's explicit job ("Visual polish + WebGL stretch decision"), not carried forward as an open item here.
+
+---
+
+## Session 5 — Capture + share (snapshot-only)
+
+**Date:** 2026-07-05
+
+**Done:**
+- `src/capture/captureFeatureFlags.js` — `ENABLE_VIDEO_CAPTURE = false`. Session 1 (iOS `MediaRecorder` spike) still hasn't run (no iPhone available yet), so per the plan's own fallback rule this session ships snapshot-only; `videoCapture.js` is deferred until that spike sets this flag from real evidence.
+- `src/capture/snapshotCapture.js` — composites the live view (mirrored, cover-cropped video frame, if any + the aura canvas) into an offscreen canvas via `canvas.toBlob`. Reuses `coverCrop.js`'s cover-fit math (extended with a new `coverDrawParams` export for the `drawImage` 9-arg source rect) so the capture pixel-matches what's on screen — same math already trusted for face-anchor tracking.
+- `src/ui/BrandOverlay.js` — draws the PRD's watermark (`#IntensifyYourGame` / `WILDSTONE EDGE`) onto the capture canvas, translucent, bottom-left (the PRD's other option, top-right, risks colliding with a front-camera notch on an unknown device).
+- `src/share/shareSheet.js` — `navigator.share`-first (native sheet, matches the demo's actual mobile target), falls back to a download-link `<a>` click when Web Share or file-share support is absent.
+- `src/screens/CapturePreviewScreen.js` (Retry/Use Photo) and `src/screens/ShareScreen.js` (Share/Done), styled per the workspace's dark theme.
+- Added a circular capture button (PRD: "circular Capture button") to both `LiveAuraScreen.js` and `TouchCanvasFallbackScreen.js` — each screen owns its own `capture()` call since each has direct access to its own video/canvas refs; `main.js` stays a thin composition root, only receiving the resulting `Blob` via `onCapture`, storing it as an object URL, and driving the FSM.
+- **Fixed a state-machine gap while wiring this in:** `CAPTURE_PREVIEW`'s `RETRY` and `SHARE`'s `DONE` previously pointed unconditionally at `LIVE_AURA`, which would send a camera-denied user (captured from the Touch Canvas fallback) into a state that needs a camera they don't have. `appStateMachine.js` now tracks a `captureOrigin` (whichever of `LIVE_AURA`/`FALLBACK_TOUCH_CANVAS` the `CAPTURE` event fired from) and both `RETRY`/`DONE` return to it via a `RETURN_TO_ORIGIN` sentinel in the transition table, instead of a second hardcoded target. All prior FSM tests still pass unchanged; added two new ones for the fallback-origin case.
+
+**Verified so far (desktop/headless, not yet real-device):**
+- `npm run build` succeeds; `npm run test:unit` (13 `node:test` cases) and `npx playwright test` (3 e2e specs, including a new `shareSheet.spec.js` covering fallback capture → preview → share → back-to-fallback, and a retry case) all green.
+- Playwright screenshot smoke-check of the composited capture (drag-shaped aura + watermark) confirms the composite pipeline visually: ring particles render correctly, watermark text is legible bottom-left, buttons don't overlap the image.
+
+**Not yet real-device confirmed** (same gap pattern as Session 4 — this needs an actual phone, not desktop headless Chromium):
+1. Whether `navigator.share` actually engages the native OS share sheet on real Android/iOS Safari (headless Chromium here has no file-share support, so only the download-link fallback path has been exercised).
+2. Whether the capture composite (video + aura canvas + watermark) looks right against a *real face*, not a synthetic drag — this is the same "not automatable" visual-quality gap Session 4 flagged for the aura itself.
+3. The camera-branch capture path specifically (`LiveAuraScreen`'s `capture()`, which mirrors+cover-crops a real `<video>` frame) has not been exercised at all yet — only the fallback branch was tested here, since headless Chromium in this repo's Playwright config has no fake camera device wired up.
+
+**Next:** real-phone retest per the plan's own Session 5 verification step (walk the full journey twice — once via camera, once via forced-deny fallback — through to a successful share/download) before marking Session 5 done. Session 6 (broad device compatibility pass) is next after that.

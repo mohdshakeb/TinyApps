@@ -6,6 +6,8 @@ import { mountSplashScreen } from './screens/SplashScreen.js'
 import { mountPermissionScreen } from './screens/PermissionScreen.js'
 import { mountLiveAuraScreen } from './screens/LiveAuraScreen.js'
 import { mountTouchCanvasFallbackScreen } from './screens/TouchCanvasFallbackScreen.js'
+import { mountCapturePreviewScreen } from './screens/CapturePreviewScreen.js'
+import { mountShareScreen } from './screens/ShareScreen.js'
 
 initDebugOverlay()
 
@@ -16,6 +18,22 @@ let currentScreen = null
 function setScreen(screen) {
   currentScreen?.unmount()
   currentScreen = screen
+}
+
+let capturedBlob = null
+let capturedUrl = null
+
+function handleCapture(blob) {
+  revokeCapture()
+  capturedBlob = blob
+  capturedUrl = URL.createObjectURL(blob)
+  machine.send('CAPTURE')
+}
+
+function revokeCapture() {
+  if (capturedUrl) URL.revokeObjectURL(capturedUrl)
+  capturedUrl = null
+  capturedBlob = null
 }
 
 const machine = createStateMachine(States.SPLASH, {
@@ -39,14 +57,40 @@ function render(state) {
       break
 
     case States.LIVE_AURA: {
-      const screen = mountLiveAuraScreen(root, { videoEl })
+      const screen = mountLiveAuraScreen(root, { videoEl, onCapture: handleCapture })
       setScreen(screen)
       startDetectionLoop(videoEl, (detections) => screen.drawDetections(detections))
       break
     }
 
     case States.FALLBACK_TOUCH_CANVAS:
-      setScreen(mountTouchCanvasFallbackScreen(root))
+      setScreen(mountTouchCanvasFallbackScreen(root, { onCapture: handleCapture }))
+      break
+
+    case States.CAPTURE_PREVIEW:
+      setScreen(
+        mountCapturePreviewScreen(root, {
+          imageUrl: capturedUrl,
+          onRetry: () => {
+            revokeCapture()
+            machine.send('RETRY')
+          },
+          onConfirm: () => machine.send('CONFIRM'),
+        })
+      )
+      break
+
+    case States.SHARE:
+      setScreen(
+        mountShareScreen(root, {
+          imageUrl: capturedUrl,
+          blob: capturedBlob,
+          onDone: () => {
+            revokeCapture()
+            machine.send('DONE')
+          },
+        })
+      )
       break
   }
 }

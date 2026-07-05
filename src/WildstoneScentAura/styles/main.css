@@ -151,3 +151,77 @@ html, body {
   max-width: 32ch;
   margin: 0 auto;
 }
+
+.capture-btn {
+  position: fixed;
+  left: 50%;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 72px;
+  height: 72px;
+  border: 4px solid rgba(232, 232, 255, 0.85);
+  border-radius: 50%;
+  background: rgba(10, 10, 15, 0.35);
+}
+
+.capture-btn::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: #e8e8ff;
+  transition: background 150ms ease;
+}
+
+.capture-btn:active {
+  transform: translateX(-50%) scale(0.94);
+}
+
+.capture-btn:active::before {
+  background: #4fc3ff;
+}
+
+.screen-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  background: #0a0a0f;
+}
+
+.preview-image {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.preview-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 11;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px 24px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(5, 6, 12, 0.85), transparent);
+}
+
+.btn-secondary {
+  padding: 14px 32px;
+  border: 1px solid rgba(232, 232, 255, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: #e8e8ff;
+  font: 600 16px/1 -apple-system, system-ui, sans-serif;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.btn-secondary:active {
+  transform: scale(0.96);
+  opacity: 0.85;
+}

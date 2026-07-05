@@ -2,16 +2,27 @@ import { createAuraRenderer } from '../aura/AuraRenderer.js'
 import { EdgeVariant } from '../aura/EdgeVariant.js'
 import { detectionsToAnchor } from '../tracking/faceAnchor.js'
 import { mapCoverPoint, mirrorX } from '../utils/coverCrop.js'
+import { captureSnapshot } from '../capture/snapshotCapture.js'
 
 const isDebug = new URLSearchParams(location.search).get('debug') === '1'
 
-export function mountLiveAuraScreen(root, { videoEl }) {
+export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   videoEl.style.display = 'block'
 
   const auraCanvas = document.createElement('canvas')
   auraCanvas.className = 'aura-canvas'
   root.appendChild(auraCanvas)
   const renderer = createAuraRenderer(auraCanvas, EdgeVariant)
+
+  const captureBtn = document.createElement('button')
+  captureBtn.type = 'button'
+  captureBtn.className = 'capture-btn'
+  captureBtn.setAttribute('aria-label', 'Capture')
+  root.appendChild(captureBtn)
+  captureBtn.addEventListener('click', async () => {
+    const blob = await captureSnapshot({ width: auraCanvas.width, height: auraCanvas.height, videoEl, auraCanvas })
+    onCapture(blob)
+  })
 
   // The bounding-box overlay is a diagnostic tool, not part of the demo --
   // only mount it under `?debug=1` so the aura itself is what's visible live.
@@ -73,6 +84,7 @@ export function mountLiveAuraScreen(root, { videoEl }) {
       videoEl.style.display = 'none'
       auraCanvas.remove()
       debugCanvas?.remove()
+      captureBtn.remove()
     },
   }
 }
