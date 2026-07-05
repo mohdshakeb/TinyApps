@@ -98,3 +98,7 @@ QR/link → Splash + camera permission request → Aura experience loop (Wildsto
 ### 2026-07-05 — Naming conventions: PascalCase for screens/renderers, camelCase for logic/utils
 **Decision:** PascalCase for component-like/screen files (`SplashScreen.js`, `AuraRenderer.js`), camelCase for logic/utility files (`faceTracker.js`, `cameraStream.js`), lowercase plain folders for categories (`screens/`, `camera/`, `aura/`).
 **Rationale:** No existing local pattern covers this app type (vanilla JS + Canvas, no framework); this aligns with the closest workspace precedent (Focal/GmmcoWorkshop's Vite projects) rather than inventing an unrelated convention.
+
+### 2026-07-05 — Session 0 finding: self-hosted MediaPipe payload is ~22MB
+**Decision:** Confirmed via actual build output (not estimate): self-hosting `@mediapipe/tasks-vision`'s WASM runtime (both SIMD and non-SIMD variants, since the correct one isn't known until runtime) plus the `blaze_face_short_range.tflite` model totals ~22MB. The initial page shell (HTML/CSS/JS, no tracker) is ~138KB uncompressed — well under budget on its own.
+**Rationale/implication:** This confirms and sharpens the earlier "<3MB is the initial-shell budget, not the whole app" decision — the gap between shell and tracker is much larger than a rough estimate suggested. Reinforces that `faceTracker.js` must be dynamically imported only after the user taps past the splash screen (planned for Session 3), never eagerly bundled. Full detail in `src/WildstoneScentAura/PROGRESS.md` (Session 0).
