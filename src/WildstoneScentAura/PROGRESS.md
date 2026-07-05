@@ -55,6 +55,8 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - Side benefit confirmed in build output: main entry JS chunk dropped from ~139KB to ~3.5KB — `@mediapipe/tasks-vision`'s JS wrapper now bundles into the worker chunk (`faceTrackerWorker-*.js`, ~135KB), which only loads when the worker is instantiated.
 - Verified locally: `npm run build` succeeds, dev server serves both the main bundle and the worker module correctly (HTTP 200).
 
+**Debug-overlay bug found during real-device retest:** `mainThreadFps`/`avgDetectLatency` only appeared in the `?debug=1` panel when the camera was fully covered — otherwise they never showed. Root cause: `main.js` logged the full detections array on every detection tick (`if (detections.length > 0) console.log(...)`, up to ~15Hz whenever a face was in frame). The debug overlay mirrors `console.log` into a 50-entry scrolling panel pinned to the bottom, so that per-frame spam constantly buried/scrolled past `perfMonitor`'s once-per-second stats line. With the camera covered, `detections.length` was always 0, so no spam competed with the perf line — which is why covering the camera "fixed" it. Fixed by only logging on detection-count transitions instead of every tick (`src/main.js`).
+
 **Not yet done:**
-- Real-device confirmation that `mainThreadFps` now stays near 60 with the Worker offload — need you to retest `https://tiny-apps.vercel.app/?debug=1` on Android once this is deployed.
+- Real-device confirmation that `mainThreadFps` now stays near 60 with the Worker offload — need you to retest `https://tiny-apps.vercel.app/?debug=1` on Android once this is deployed (now that the overlay bug is fixed, the stats should actually be visible).
 - iPhone half of this session (perf on real iOS hardware) — deferred until an iPhone is available.

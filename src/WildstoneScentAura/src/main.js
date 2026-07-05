@@ -20,9 +20,11 @@ async function boot() {
     await initFaceTracker()
 
     setStatus('Tracking — check console for detections')
+    let lastDetectionCount = -1
     startDetectionLoop(videoEl, (detections) => {
-      if (detections.length > 0) {
-        console.log('[faceTracker] detections:', detections)
+      if (detections.length !== lastDetectionCount) {
+        lastDetectionCount = detections.length
+        console.log(`[faceTracker] detection count changed: ${detections.length}`)
       }
     })
   } catch (err) {
