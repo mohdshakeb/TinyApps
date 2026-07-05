@@ -1,9 +1,11 @@
 import { createAuraRenderer } from '../aura/AuraRenderer.js'
 import { EdgeVariant } from '../aura/EdgeVariant.js'
 import { createTouchAuraController } from '../touchCanvas/touchAuraController.js'
-import { captureSnapshot } from '../capture/snapshotCapture.js'
 
-export function mountTouchCanvasFallbackScreen(root, { onCapture }) {
+// Insurance-only screen: conveys that the camera is required and gives a
+// finger-drag aura to play with meanwhile, but doesn't offer capture/share --
+// that flow stays gated on a real camera feed.
+export function mountTouchCanvasFallbackScreen(root) {
   const el = document.createElement('div')
   el.className = 'screen-fallback'
   el.innerHTML = `
@@ -12,17 +14,11 @@ export function mountTouchCanvasFallbackScreen(root, { onCapture }) {
       <h2 class="fallback-title">Camera unavailable</h2>
       <p class="fallback-subtitle">Drag your finger across the screen to shape the aura instead.</p>
     </div>
-    <button type="button" class="capture-btn" aria-label="Capture"></button>
   `
   root.appendChild(el)
 
   const canvas = el.querySelector('canvas')
   const renderer = createAuraRenderer(canvas, EdgeVariant)
-
-  el.querySelector('.capture-btn').addEventListener('click', async () => {
-    const blob = await captureSnapshot({ width: canvas.width, height: canvas.height, videoEl: null, auraCanvas: canvas })
-    onCapture(blob)
-  })
 
   function resize() {
     renderer.resize()

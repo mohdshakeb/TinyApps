@@ -64,7 +64,7 @@ function render(state) {
     }
 
     case States.FALLBACK_TOUCH_CANVAS:
-      setScreen(mountTouchCanvasFallbackScreen(root, { onCapture: handleCapture }))
+      setScreen(mountTouchCanvasFallbackScreen(root))
       break
 
     case States.CAPTURE_PREVIEW:

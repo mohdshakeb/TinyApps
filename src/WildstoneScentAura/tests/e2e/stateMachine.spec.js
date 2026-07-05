@@ -54,25 +54,10 @@ test('capture/share loop: LIVE_AURA -> CAPTURE_PREVIEW -> SHARE -> LIVE_AURA, an
   assert.equal(machine.getState(), States.LIVE_AURA)
 })
 
-test('Touch Canvas fallback reuses the capture/share flow', () => {
+test('Touch Canvas fallback is messaging/insurance only -- CAPTURE is a no-op there', () => {
   const machine = createStateMachine(States.FALLBACK_TOUCH_CANVAS)
-  machine.send('CAPTURE')
-  assert.equal(machine.getState(), States.CAPTURE_PREVIEW)
-})
-
-test('retry from a fallback-originated capture returns to the fallback screen, not LIVE_AURA', () => {
-  const machine = createStateMachine(States.FALLBACK_TOUCH_CANVAS)
-  machine.send('CAPTURE')
-  machine.send('RETRY')
-  assert.equal(machine.getState(), States.FALLBACK_TOUCH_CANVAS)
-})
-
-test('sharing a fallback-originated capture returns to the fallback screen after DONE', () => {
-  const machine = createStateMachine(States.FALLBACK_TOUCH_CANVAS)
-  machine.send('CAPTURE')
-  machine.send('CONFIRM')
-  assert.equal(machine.getState(), States.SHARE)
-  machine.send('DONE')
+  const result = machine.send('CAPTURE')
+  assert.equal(result, States.FALLBACK_TOUCH_CANVAS)
   assert.equal(machine.getState(), States.FALLBACK_TOUCH_CANVAS)
 })
 
