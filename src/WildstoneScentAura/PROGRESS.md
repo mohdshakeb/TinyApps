@@ -123,7 +123,12 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - `npm run build` succeeds; `npm run test:unit` (9/9) and `npm run test:e2e` (fallback test) still pass unmodified.
 - Ad-hoc Playwright smoke check (written, verified, then discarded — not part of the committed suite, since the plan's testing strategy explicitly excludes automating aura visual quality): simulated a mouse drag across the Touch Canvas fallback and read back the canvas's pixel buffer — confirmed non-transparent pixels are actually painted, i.e. the drag → anchor → renderer → particle → draw pipeline works end-to-end in a real browser engine, not just at the unit level.
 
-**Not yet done / real-device validation required before Session 4 can be marked DONE per the plan's "done when" criteria:**
-- Have not confirmed on a real phone that "aura visibly follows face movement... at acceptable frame rate" — main-thread perf headroom after adding the rAF particle loop on top of the Worker-offloaded detection loop (Session 2's concern) is untested on real hardware.
-- `REFERENCE_FACE_FRACTION`/scale clamp range in `faceAnchor.js` is a guess and will likely need real-device tuning once the aura's apparent size relative to a real face is visible.
+**Real-device retest (Android):**
+- **Perf confirmed:** `mainThreadFps` holds steady at 60 with the aura's rAF particle loop running alongside the Worker-offloaded face detector — no regression from Session 2's concern that this combination would surface main-thread contention.
+- **Visual bug found:** the aura sat directly *on* the face rather than around it. Root cause: `EdgeVariant.createParticle` spawned every particle at the anchor's exact center point (`originX, originY`) — with the PRD calling for particles "emitting outwards behind or around the coordinate center," spawning them at dead-center reads as sitting on the face instead of framing it.
+- **Fix:** `EdgeVariant.createParticle` now spawns each particle on a ring around the anchor (`RING_RADIUS_FRACTION = 0.18` of `min(canvas width, height)`, scaled by `anchor.scale`) and continues the jagged arc radially outward from there, instead of from dead-center. Required threading `width`/`height` through `particleSystem.js`'s call to `createParticle` so a variant can size a spawn radius relative to the canvas. Rebuilt, unit suite still green (9/9), pushed as a follow-up commit — **not yet re-confirmed on device.**
+
+**Not yet done / real-device validation still needed before Session 4 can be marked DONE per the plan's "done when" criteria:**
+- Re-test the ring-spawn fix on the Android device to confirm the aura now frames the face instead of overlapping it, and that `RING_RADIUS_FRACTION = 0.18` looks like a reasonable halo size (not too tight/loose).
+- `REFERENCE_FACE_FRACTION`/scale clamp range in `faceAnchor.js` is still a guess and may need tuning alongside the ring radius.
 - iPhone testing remains part of the standing deferred-until-hardware-available gap from Sessions 1-2.
