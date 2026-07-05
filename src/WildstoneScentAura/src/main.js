@@ -1,5 +1,8 @@
 import { startCameraStream } from './camera/cameraStream.js'
 import { initFaceTracker, startDetectionLoop } from './tracking/faceTracker.js'
+import { initDebugOverlay } from './utils/debugOverlay.js'
+
+initDebugOverlay()
 
 const videoEl = document.getElementById('camera-feed')
 const statusEl = document.getElementById('status')
