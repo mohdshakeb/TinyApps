@@ -1,14 +1,38 @@
+import { createAuraRenderer } from '../aura/AuraRenderer.js'
+import { EdgeVariant } from '../aura/EdgeVariant.js'
+import { createTouchAuraController } from '../touchCanvas/touchAuraController.js'
+
 export function mountTouchCanvasFallbackScreen(root) {
   const el = document.createElement('div')
-  el.className = 'screen screen-fallback'
+  el.className = 'screen-fallback'
   el.innerHTML = `
-    <h2 class="fallback-title">Camera unavailable</h2>
-    <p class="fallback-subtitle">Drag your finger across the screen to shape the aura instead.</p>
+    <canvas class="aura-canvas"></canvas>
+    <div class="fallback-hint">
+      <h2 class="fallback-title">Camera unavailable</h2>
+      <p class="fallback-subtitle">Drag your finger across the screen to shape the aura instead.</p>
+    </div>
   `
   root.appendChild(el)
 
+  const canvas = el.querySelector('canvas')
+  const renderer = createAuraRenderer(canvas, EdgeVariant)
+
+  function resize() {
+    renderer.resize()
+  }
+  resize()
+  window.addEventListener('resize', resize)
+  renderer.start()
+
+  const controller = createTouchAuraController(canvas, {
+    onAnchor: (anchor) => renderer.setAnchor(anchor),
+  })
+
   return {
     unmount() {
+      window.removeEventListener('resize', resize)
+      renderer.stop()
+      controller.destroy()
       el.remove()
     },
   }

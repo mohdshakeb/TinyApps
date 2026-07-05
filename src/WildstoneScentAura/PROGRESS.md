@@ -101,3 +101,29 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 **Not yet done / carried forward:**
 - `LiveAuraScreen`'s bounding-box coordinate mapping is an approximation (ignores the `object-fit: cover` crop offset) — fine for a debug overlay, but Session 4's real aura anchor will need exact cover-crop math.
 - Capture/Share screens and the Touch Canvas drag interaction are intentionally not built yet — Sessions 4 and 5.
+
+---
+
+## Session 4 — Canvas2D aura v1 (Wildstone Edge)
+
+**Date:** 2026-07-05
+
+**Done:**
+- `src/utils/coverCrop.js` — exact `object-fit: cover` math (`mapCoverPoint`, `mirrorX`): uniform scale = `max(displayW/videoW, displayH/videoH)`, centered crop offset, then the horizontal mirror flip that `#camera-feed`'s CSS `scaleX(-1)` requires. Replaces the approximate independent-x/y-scale mapping carried forward from Session 3.
+- `src/tracking/faceAnchor.js` — `detectionsToAnchor()` converts a MediaPipe `FaceDetector` result into the shared anchor shape `{ x, y, scale, confidence }` (x/y normalized 0-1 in display space) using `coverCrop.js`. Takes `detections[0]` (single-face only; picking the highest-confidence box among multiple faces is explicitly Session 9 scope, not duplicated here). `scale` is derived from face-box width relative to a `REFERENCE_FACE_FRACTION` (0.35) tuning constant, clamped to [0.7, 1.6] — **not real-device calibrated yet**, expect this needs adjusting once seen on a phone.
+- `src/aura/particleSystem.js` — generic, variant-agnostic particle pool: emits particles at `variant.emissionRate * confidence` per second from the anchor position, applies velocity+drag+life aging each frame, culls dead particles. Only touches the variant via `createParticle`/`drawParticle`, so later Red/Intense Black variants reuse this file unchanged.
+- `src/aura/EdgeVariant.js` — Wildstone Edge look: each particle is a short jagged 2-4 segment polyline (a lightning-arc fragment) shot outward from the anchor at a random angle, electric-blue palette (`#e8faff` → `#2f8fe0`), 0.28-0.55s life. Particles are spawned at the anchor's *current* position and then drift independently, so fast anchor movement leaves a trail of past bursts behind it for free — satisfies the PRD's "trailing wisps" motion-inertia requirement without dedicated trail-tracking code.
+- `src/aura/AuraRenderer.js` — the swappable Canvas2D renderer behind the seam named in `Planning/CONTEXT.md`. Runs its own rAF loop (not tied to the ~15Hz detection rate); `setAnchor()` just updates a target and every frame lerps the rendered anchor 22% toward it, so motion reads as smooth 60fps despite throttled detection input. Uses `globalCompositeOperation = 'lighter'` once per frame (not per-particle `shadowBlur`, which is known-expensive on mobile Canvas2D) for a cheap additive glow.
+- `src/touchCanvas/touchAuraController.js` — Pointer Events (`pointerdown`/`pointermove`/`pointerup`/`pointercancel`) on the fallback canvas, emitting the same anchor shape (`scale: 1`, `confidence: 1` while dragging, neutral anchor with `confidence: 0` on release). Gated on an internal `active` flag since `pointermove` fires on mouse hover even without a button pressed — without that guard, a desktop mouse would drive the aura just by hovering, not dragging.
+- `LiveAuraScreen.js` now mounts an `.aura-canvas` fed by `AuraRenderer`+`EdgeVariant`+`faceAnchor.js`; the old always-on debug bounding-box canvas is now gated behind `?debug=1` (using the same exact cover-crop math) so the demo view only shows the aura, not a green debug rectangle.
+- `TouchCanvasFallbackScreen.js` rebuilt: full-bleed `.aura-canvas` (same renderer/variant) driven by `touchAuraController.js`, with the "Camera unavailable" copy repositioned to a `pointer-events: none` hint banner at the top so it no longer blocks the drag surface. `touch-action: none` added on `.aura-canvas` so mobile browsers don't intercept single-finger drags as scroll/rubber-band gestures.
+- `main.js` needed **no changes** — `screen.drawDetections(detections)` keeps the same call signature; anchor derivation and rendering are fully encapsulated inside the screen modules.
+
+**Verification so far (not yet real-device):**
+- `npm run build` succeeds; `npm run test:unit` (9/9) and `npm run test:e2e` (fallback test) still pass unmodified.
+- Ad-hoc Playwright smoke check (written, verified, then discarded — not part of the committed suite, since the plan's testing strategy explicitly excludes automating aura visual quality): simulated a mouse drag across the Touch Canvas fallback and read back the canvas's pixel buffer — confirmed non-transparent pixels are actually painted, i.e. the drag → anchor → renderer → particle → draw pipeline works end-to-end in a real browser engine, not just at the unit level.
+
+**Not yet done / real-device validation required before Session 4 can be marked DONE per the plan's "done when" criteria:**
+- Have not confirmed on a real phone that "aura visibly follows face movement... at acceptable frame rate" — main-thread perf headroom after adding the rAF particle loop on top of the Worker-offloaded detection loop (Session 2's concern) is untested on real hardware.
+- `REFERENCE_FACE_FRACTION`/scale clamp range in `faceAnchor.js` is a guess and will likely need real-device tuning once the aura's apparent size relative to a real face is visible.
+- iPhone testing remains part of the standing deferred-until-hardware-available gap from Sessions 1-2.

@@ -1,34 +1,67 @@
+import { createAuraRenderer } from '../aura/AuraRenderer.js'
+import { EdgeVariant } from '../aura/EdgeVariant.js'
+import { detectionsToAnchor } from '../tracking/faceAnchor.js'
+import { mapCoverPoint, mirrorX } from '../utils/coverCrop.js'
+
+const isDebug = new URLSearchParams(location.search).get('debug') === '1'
+
 export function mountLiveAuraScreen(root, { videoEl }) {
   videoEl.style.display = 'block'
 
-  const canvas = document.createElement('canvas')
-  canvas.className = 'debug-bbox-canvas'
-  root.appendChild(canvas)
-  const ctx = canvas.getContext('2d')
+  const auraCanvas = document.createElement('canvas')
+  auraCanvas.className = 'aura-canvas'
+  root.appendChild(auraCanvas)
+  const renderer = createAuraRenderer(auraCanvas, EdgeVariant)
+
+  // The bounding-box overlay is a diagnostic tool, not part of the demo --
+  // only mount it under `?debug=1` so the aura itself is what's visible live.
+  let debugCanvas = null
+  let debugCtx = null
+  if (isDebug) {
+    debugCanvas = document.createElement('canvas')
+    debugCanvas.className = 'debug-bbox-canvas'
+    root.appendChild(debugCanvas)
+    debugCtx = debugCanvas.getContext('2d')
+  }
 
   function resize() {
-    canvas.width = videoEl.clientWidth
-    canvas.height = videoEl.clientHeight
+    renderer.resize()
+    if (debugCanvas) {
+      debugCanvas.width = debugCanvas.clientWidth
+      debugCanvas.height = debugCanvas.clientHeight
+    }
   }
   resize()
   window.addEventListener('resize', resize)
+  renderer.start()
 
   function drawDetections(detections) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const displayWidth = auraCanvas.clientWidth
+    const displayHeight = auraCanvas.clientHeight
+
+    if (videoEl.videoWidth) {
+      renderer.setAnchor(
+        detectionsToAnchor(detections, {
+          videoWidth: videoEl.videoWidth,
+          videoHeight: videoEl.videoHeight,
+          displayWidth,
+          displayHeight,
+        })
+      )
+    }
+
+    if (!debugCtx) return
+    debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height)
     if (!videoEl.videoWidth) return
 
-    // Approximate mapping from the video's native resolution to its rendered
-    // (mirrored, object-fit: cover) size -- exact enough for a debug overlay;
-    // Session 4's real aura anchor will need precise cover-crop math.
-    const scaleX = canvas.width / videoEl.videoWidth
-    const scaleY = canvas.height / videoEl.videoHeight
-
-    ctx.strokeStyle = '#9fffb0'
-    ctx.lineWidth = 2
+    debugCtx.strokeStyle = '#9fffb0'
+    debugCtx.lineWidth = 2
     for (const { boundingBox: box } of detections) {
       if (!box) continue
-      const x = canvas.width - (box.originX + box.width) * scaleX
-      ctx.strokeRect(x, box.originY * scaleY, box.width * scaleX, box.height * scaleY)
+      const { x, y, coverScale } = mapCoverPoint(box.originX, box.originY, videoEl.videoWidth, videoEl.videoHeight, displayWidth, displayHeight)
+      const w = box.width * coverScale
+      const h = box.height * coverScale
+      debugCtx.strokeRect(mirrorX(x + w, displayWidth), y, w, h)
     }
   }
 
@@ -36,8 +69,10 @@ export function mountLiveAuraScreen(root, { videoEl }) {
     drawDetections,
     unmount() {
       window.removeEventListener('resize', resize)
+      renderer.stop()
       videoEl.style.display = 'none'
-      canvas.remove()
+      auraCanvas.remove()
+      debugCanvas?.remove()
     },
   }
 }
