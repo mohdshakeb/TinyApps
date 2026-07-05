@@ -4,6 +4,15 @@ const NEUTRAL_ANCHOR = { x: 0.5, y: 0.5, scale: 1, confidence: 0 }
 const SMOOTHING = 0.22 // per-frame lerp factor toward the latest anchor
 const MAX_DT = 0.05 // clamp dt so a tab coming back from background doesn't spawn a burst
 
+// Motion-energy signal: how fast the (already-smoothed) anchor is currently
+// moving, in normalized-display-units/sec, EMA-smoothed and clamped into a
+// 0-1 range. This is the generic "is something shaking right now" signal
+// particleSystem.js gates emission on -- deliberately computed here rather
+// than in a separate module, since `smoothedAnchor` is already the only
+// place cross-frame anchor state exists in this codebase.
+const ENERGY_SMOOTHING = 0.25
+const ENERGY_MAX = 6
+
 // Canvas2D implementation behind the swappable `AuraRenderer` seam (see
 // Planning/CONTEXT.md). Runs its own rAF loop independent of the ~15Hz
 // detection rate -- `setAnchor` just updates a target, and each frame lerps
@@ -17,6 +26,8 @@ export function createAuraRenderer(canvas, variant) {
   let height = 0
   let targetAnchor = NEUTRAL_ANCHOR
   let smoothedAnchor = { ...NEUTRAL_ANCHOR }
+  let prevAnchor = { ...NEUTRAL_ANCHOR }
+  let motionEnergy = 0
   let rafId = null
   let lastTime = 0
 
@@ -48,8 +59,28 @@ export function createAuraRenderer(canvas, variant) {
       confidence: targetAnchor.confidence,
     }
 
+    // Diff against last frame's (already-smoothed) anchor for a generic
+    // motion signal -- skipped on the very first frame after start() (dt=0)
+    // so a large jump from a stale prevAnchor can't fake an energy spike.
+    let dirX = 0
+    let dirY = 0
+    if (dt > 0) {
+      const dx = smoothedAnchor.x - prevAnchor.x
+      const dy = smoothedAnchor.y - prevAnchor.y
+      const rawSpeed = Math.hypot(dx, dy) / dt
+      motionEnergy += (rawSpeed - motionEnergy) * ENERGY_SMOOTHING
+      motionEnergy = Math.max(0, Math.min(motionEnergy, ENERGY_MAX))
+      const mag = Math.hypot(dx, dy)
+      if (mag > 1e-4) {
+        dirX = dx / mag
+        dirY = dy / mag
+      }
+    }
+    const energy01 = motionEnergy / ENERGY_MAX
+    prevAnchor = smoothedAnchor
+
     ctx.clearRect(0, 0, width, height)
-    particleSystem.update(dt, smoothedAnchor, width, height)
+    particleSystem.update(dt, smoothedAnchor, width, height, energy01, dirX, dirY)
 
     ctx.save()
     ctx.globalCompositeOperation = 'lighter' // cheap additive glow, no per-particle shadowBlur cost
@@ -62,6 +93,8 @@ export function createAuraRenderer(canvas, variant) {
   function start() {
     resize()
     lastTime = 0
+    prevAnchor = smoothedAnchor
+    motionEnergy = 0
     if (!rafId) rafId = requestAnimationFrame(frame)
   }
 

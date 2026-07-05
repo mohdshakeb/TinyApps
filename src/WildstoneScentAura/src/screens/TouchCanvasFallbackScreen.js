@@ -1,5 +1,5 @@
 import { createAuraRenderer } from '../aura/AuraRenderer.js'
-import { EdgeVariant } from '../aura/EdgeVariant.js'
+import { VaporVariant } from '../aura/VaporVariant.js'
 import { createTouchAuraController } from '../touchCanvas/touchAuraController.js'
 
 // Insurance-only screen: conveys that the camera is required and gives a
@@ -18,7 +18,7 @@ export function mountTouchCanvasFallbackScreen(root) {
   root.appendChild(el)
 
   const canvas = el.querySelector('canvas')
-  const renderer = createAuraRenderer(canvas, EdgeVariant)
+  const renderer = createAuraRenderer(canvas, VaporVariant)
 
   function resize() {
     renderer.resize()

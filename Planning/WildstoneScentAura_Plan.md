@@ -21,6 +21,7 @@ Full rationale for each of these lives in `Planning/CONTEXT.md` → Architecture
 - **Capture:** `snapshotCapture.js` (canvas.toDataURL) is the guaranteed, always-shipped path. `videoCapture.js` (MediaRecorder + captureStream) is feature-flagged via `captureFeatureFlags.js`, gated entirely on the Session 1 iOS spike result.
 - **Detection vs. render rate:** `FaceDetector.detectForVideo()` throttled (~15-20Hz); interpolated/smoothed to full 60fps render via `landmarkSmoothing.js`. Web Worker split (`faceTrackerWorker.js`) only if Session 2's perf spike shows main-thread contention.
 - **Naming conventions:** PascalCase for component-like/screen files (`SplashScreen.js`, `AuraRenderer.js`), camelCase for logic/utility files (`faceTracker.js`, `cameraStream.js`), lowercase plain folders for categories (`screens/`, `camera/`, `aura/`).
+- **Aura interaction model (post-Session 7 pivot):** particles emit only during an active head-shake motion (a generic motion-energy signal computed in `AuraRenderer.js`), not continuously on face-detection confidence alone — reframes the aura from passive ambient tracking into a scored mini-game. `shakeTracker.js` scores each shake round on amplitude + tempo-consistency (not raw speed), bucketed too-slow/too-fast/perfect, landing on a retry-only results screen (`ShakeResultsScreen.js`). `VaporVariant.js` (soft floating mist dots) replaces `EdgeVariant.js`'s jagged lightning-arc look entirely — not a coexisting alternate. Capture/share is explicitly unchanged: no slow-mo or score-burned video; capture still happens via the existing button back in `LIVE_AURA`. Full design in `Planning/CONTEXT.md` → Architecture Decisions.
 - **Testing:** small (4-6 test) Playwright + `node:test` suite for deterministic logic and browser-mockable flows only. Real face-tracking accuracy/perf and real iOS Safari MediaRecorder reliability are explicitly NOT automated — Playwright's `webkit` project is desktop WebKit and won't reproduce real mobile Safari bugs.
 - **Deploy:** git repo in TinyApps → GitHub → Vercel git integration, Root Directory `src/WildstoneScentAura`, framework preset Vite (auto-detected). `vercel.json` adds a `Permissions-Policy: camera=(self)` header and long-lived immutable caching on hashed asset/mediapipe paths.
 
@@ -40,10 +41,11 @@ TinyApps/
 │   │   ├── main.js
 │   │   ├── state/appStateMachine.js         # pure FSM — see state graph below
 │   │   ├── screens/                         # SplashScreen.js, PermissionScreen.js, LiveAuraScreen.js,
-│   │   │                                    # CapturePreviewScreen.js, ShareScreen.js, TouchCanvasFallbackScreen.js
+│   │   │                                    # CapturePreviewScreen.js, ShareScreen.js, TouchCanvasFallbackScreen.js,
+│   │   │                                    # ShakeResultsScreen.js
 │   │   ├── camera/                          # cameraStream.js, cameraErrors.js
 │   │   ├── tracking/                        # faceTracker.js, landmarkSmoothing.js, (faceTrackerWorker.js if needed)
-│   │   ├── aura/                            # AuraRenderer.js, EdgeVariant.js, particleSystem.js, shaders/edgeArc.js (stretch)
+│   │   ├── aura/                            # AuraRenderer.js, VaporVariant.js, particleSystem.js, shakeTracker.js
 │   │   ├── capture/                         # snapshotCapture.js, videoCapture.js, captureFeatureFlags.js
 │   │   ├── touchCanvas/touchAuraController.js
 │   │   ├── share/shareSheet.js
@@ -61,11 +63,15 @@ CAMERA_INITIALIZING --first frame + model ready--> LIVE_AURA
 CAMERA_INITIALIZING --timeout/NotReadableError--> FALLBACK_TOUCH_CANVAS
 LIVE_AURA --track.onended (camera dies mid-session)--> FALLBACK_TOUCH_CANVAS
 LIVE_AURA --tap capture--> CAPTURE_PREVIEW
+LIVE_AURA --shake round complete--> SHAKE_RESULTS     # added Session 8 (shake game)
+SHAKE_RESULTS --retry--> LIVE_AURA                    # added Session 8 (shake game)
 CAPTURE_PREVIEW --retry--> LIVE_AURA
 CAPTURE_PREVIEW --confirm--> SHARE
 SHARE --done--> LIVE_AURA
 FALLBACK_TOUCH_CANVAS --capture--> CAPTURE_PREVIEW   # reuses capture/preview/share flow, snapshot-only
 ```
+
+Note: the original scope note above ("Touch Canvas reuses capture/preview/share flow") was corrected during Session 5 — capture is only reachable from `LIVE_AURA` in the actual implementation; see `Planning/CONTEXT.md`'s Session 5 correction entry.
 
 ## Session Continuity (how future sessions pick this up)
 
@@ -76,7 +82,7 @@ At the **end of every working session**, update `src/WildstoneScentAura/PROGRESS
 
 Also update `Planning/CONTEXT.md` → Architecture Decisions for any decision that changes previously-recorded scope. A new session should be able to read `PROGRESS.md` + `Planning/CONTEXT.md` and resume without re-deriving context.
 
-## Session-by-Session Plan (~11 sessions over 1 month)
+## Session-by-Session Plan (~12 sessions over 1 month)
 
 **Session 0 — Repo, deploy pipeline, and camera "hello world"**
 - Init git in `TinyApps/`, create GitHub repo, connect to Vercel (Root Directory `src/WildstoneScentAura`).
@@ -116,15 +122,23 @@ Also update `Planning/CONTEXT.md` → Architecture Decisions for any decision th
 - Based on Sessions 1-2 perf data, decide whether to invest in more Canvas2D layering or attempt a WebGL backend behind the `AuraRenderer` seam. Apply `emil-design-eng`/`impeccable`/`interface-design`/`ui-skills` per this workspace's mandatory UI guardrails.
 - **Done when:** Edge variant is visually demo-ready; no unresolved P0 visual bugs.
 
-**Session 8 — Bundle budget + load-perf pass**
+**Session 8 — Shake-to-Release Vapor Aura Game**
+- Add a generic motion-energy signal to `AuraRenderer.js` (diff `smoothedAnchor` frame-to-frame; the only place cross-frame anchor state already lives) and thread it into `particleSystem.js`'s emission formula so particles only emit while there's active motion, for both the camera and Touch Canvas paths.
+- Build `shakeTracker.js`: detects a shake round via direction-reversal counting on the anchor's x-position, scores it on amplitude + tempo-consistency (not raw speed) into too-slow/too-fast/perfect, fires once per round.
+- Build `VaporVariant.js` (soft radial-gradient mist dots, motion-coupled drift/coherence) replacing `EdgeVariant.js` entirely — delete the old jagged-arc variant.
+- Add `SHAKE_RESULTS` state + `SHAKE_COMPLETE`/`RETRY` events to `appStateMachine.js`; build `ShakeResultsScreen.js` (score + retry button only — no direct capture path from results, capture stays on the existing button in `LIVE_AURA`); wire into `main.js` following the existing `handleCapture`/`onCapture` pattern.
+- Explicitly unchanged: `src/capture/*`, `src/share/shareSheet.js`, `CapturePreviewScreen.js`, `ShareScreen.js` — no slow-mo, no score-burned video, no re-encoding.
+- **Done when:** standing still in front of the camera produces no particles; a real head-shake produces a scored round landing on the results screen; Retry cleanly starts a fresh round; Touch Canvas fallback still only emits while actively dragging (no code change needed there, confirmed by the motion gate alone). Tuning constants (amplitude/tempo thresholds, vapor emission rate/drag/life) are starting estimates, finalized only after real-device eyes, same as every other tuning constant in this plan (e.g. `RING_RADIUS_FRACTION`).
+
+**Session 9 — Bundle budget + load-perf pass**
 - Measure real production build weight; confirm the MediaPipe chunk is deferred past initial paint; add a loading indicator covering the wasm/model fetch during `CAMERA_INITIALIZING`.
 - **Done when:** initial shell measured under 3MB; time-to-live-aura on a throttled mobile profile recorded and judged acceptable.
 
-**Session 9 — Edge-case hardening**
+**Session 10 — Edge-case hardening**
 - Permission revoked mid-session, tab backgrounded/foregrounded, orientation change during live aura, no-face-detected idle state, multiple faces (pick highest-confidence box). Full Playwright suite green.
 - **Done when:** no crashes across these cases on a real device; automated suite passes.
 
-**Session 10 — Full demo rehearsal**
+**Session 11 — Full demo rehearsal**
 - Hand the deployed URL to someone else's phone, cold and unrehearsed — the closest realistic proxy for the client's own unknown device. Run the full script once as the actual demo would go.
 - Update `Planning/CONTEXT.md` and `ops/CONTEXT.md` with final go/no-go state.
 - **Done when:** one complete unaided run-through succeeds on a device never tested before, splash through share.
@@ -136,4 +150,5 @@ Also update `Planning/CONTEXT.md` → Architecture Decisions for any decision th
 - **After Session 1:** confirm the recorded video-capture spike result (pass or fail) is reflected in `captureFeatureFlags.js` and matches what was actually observed on the iPhone.
 - **After Session 3 onward:** run `npx playwright test` (or `node --test` for the pure FSM spec) and confirm all tests pass before moving to the next session.
 - **After Session 5:** manually walk the full journey twice on a real phone — once via the camera path, once by forcing the fallback (deny permission) — through to a successful share/download.
-- **Session 10 (final):** the unaided cold run-through on an untested device is the actual acceptance test for the whole month of work — this is the condition that determines "ready for the client demo."
+- **After Session 8:** manual desktop check with `?debug=1` confirms Touch Canvas vapor dots only appear while actively dragging; real-device retest confirms no idle particles, a scored shake round, and a clean retry loop before tuning constants are finalized.
+- **Session 11 (final):** the unaided cold run-through on an untested device is the actual acceptance test for the whole month of work — this is the condition that determines "ready for the client demo."

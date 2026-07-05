@@ -1,5 +1,6 @@
 import { createAuraRenderer } from '../aura/AuraRenderer.js'
-import { EdgeVariant } from '../aura/EdgeVariant.js'
+import { VaporVariant } from '../aura/VaporVariant.js'
+import { createShakeTracker } from '../aura/shakeTracker.js'
 import { detectionsToAnchor } from '../tracking/faceAnchor.js'
 import { mapCoverPoint, mirrorX } from '../utils/coverCrop.js'
 import { captureSnapshot } from '../capture/snapshotCapture.js'
@@ -10,13 +11,15 @@ const isDebug = new URLSearchParams(location.search).get('debug') === '1'
 const LONG_PRESS_MS = 350
 const videoCaptureReady = ENABLE_VIDEO_CAPTURE && isVideoCaptureSupported()
 
-export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
+export function mountLiveAuraScreen(root, { videoEl, onCapture, onShakeComplete }) {
   videoEl.style.display = 'block'
 
   const auraCanvas = document.createElement('canvas')
   auraCanvas.className = 'aura-canvas'
   root.appendChild(auraCanvas)
-  const renderer = createAuraRenderer(auraCanvas, EdgeVariant)
+  const renderer = createAuraRenderer(auraCanvas, VaporVariant)
+  const shakeTracker = createShakeTracker({ onRoundComplete: onShakeComplete })
+  let lastDetectionTime = 0
 
   const captureBtn = document.createElement('button')
   captureBtn.type = 'button'
@@ -103,14 +106,21 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
     const displayHeight = auraCanvas.clientHeight
 
     if (videoEl.videoWidth) {
-      renderer.setAnchor(
-        detectionsToAnchor(detections, {
-          videoWidth: videoEl.videoWidth,
-          videoHeight: videoEl.videoHeight,
-          displayWidth,
-          displayHeight,
-        })
-      )
+      const anchor = detectionsToAnchor(detections, {
+        videoWidth: videoEl.videoWidth,
+        videoHeight: videoEl.videoHeight,
+        displayWidth,
+        displayHeight,
+      })
+      renderer.setAnchor(anchor)
+
+      // Detections arrive at MediaPipe's throttled rate (~15Hz), not per rAF
+      // frame, so the shake tracker needs its own dt computed from wall-clock
+      // time between calls (mirroring AuraRenderer.js's own lastTime/dt).
+      const now = performance.now()
+      const dt = lastDetectionTime ? Math.min((now - lastDetectionTime) / 1000, 0.2) : 0
+      lastDetectionTime = now
+      shakeTracker.update(dt, anchor)
     }
 
     if (!debugCtx) return
@@ -134,6 +144,7 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
       window.removeEventListener('resize', resize)
       endPress() // stop an in-flight recording rather than leak its rAF loop + open stream
       renderer.stop()
+      shakeTracker.reset()
       videoEl.style.display = 'none'
       auraCanvas.remove()
       debugCanvas?.remove()

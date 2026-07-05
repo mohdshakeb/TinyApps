@@ -156,6 +156,22 @@ html, body {
   margin: 0 auto;
 }
 
+.screen-shake-results {
+  background: radial-gradient(circle at 50% 30%, rgba(79, 195, 255, 0.14), transparent 60%), #0a0a0f;
+}
+
+.shake-results-score {
+  font-size: clamp(4rem, 22vw, 6rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #4fc3ff;
+}
+
+.shake-results-bucket {
+  color: #b7bad1;
+  max-width: 28ch;
+}
+
 .capture-btn {
   position: fixed;
   left: 50%;

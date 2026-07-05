@@ -217,4 +217,38 @@ Session 6 ("Broad real-device compatibility pass #1") explicitly needs 2+ iOS Sa
 
 **Verified:** `npm run test:unit` (9/9), `npx playwright test` (2/2), `npm run build` all green; DPR fix visually smoke-checked per above. **Not yet confirmed on a real phone** — the DPR crispness improvement and the marginal video-capture compositing cost both need real-device eyes (Android, the one device available) before this can be called fully done.
 
-**Next:** real-device retest of this session's changes, then either Session 8 (bundle/load-perf) or Session 9 (edge-case hardening) — Session 6 stays deferred until more devices are available.
+**Real-device retest (Android) confirms the crispness win:** the aura ring visibly looks crisper than before the fix. **Still open, not yet specifically re-checked:** whether compositing more pixels during video capture (now that the canvas is DPR-scaled) has any perf cost — this wasn't part of the "ring looks crisper" check and needs its own long-press-record retest before being marked confirmed.
+
+**Session 7 is done** (visual quality confirmed; the video-capture perf follow-up is a small tracked item, not a blocker). Session 6 remains deferred until more devices are available.
+
+---
+
+## Session 8 — Shake-to-Release Vapor Aura Game
+
+**Date:** 2026-07-05
+
+Full design/rationale in `Planning/CONTEXT.md` (post-Session 7 pivot entry) and `Planning/WildstoneScentAura_Plan.md` (Session 8). Summary of what changed:
+
+**Done:**
+- `src/aura/AuraRenderer.js` — added a generic motion-energy signal: diffs `smoothedAnchor` against the previous frame's value (the only place cross-frame anchor state already existed), EMA-smoothed (`ENERGY_SMOOTHING = 0.25`) and clamped into 0-1 (`energy01`), plus a unit direction vector (`dirX`/`dirY`). Both are passed into `particleSystem.update(...)` at the existing call site. Guarded against a false spike on the very first frame after `start()` (skipped while `dt === 0`, and `prevAnchor`/`motionEnergy` reset in `start()`).
+- `src/aura/particleSystem.js` — `update()` signature extended to `(dt, anchor, width, height, motionEnergy01, motionDirX, motionDirY)`; emission now requires `motionEnergy01 > MOTION_GATE_THRESHOLD` (0.05) in addition to the existing `confidence > 0.05` gate, so particles only emit during active motion for **both** the camera and Touch Canvas paths — no per-path special-casing needed since both already funnel through this one function. Variant contract otherwise unchanged (`createParticle`'s 3 new args are optional/backward-compatible).
+- `src/aura/shakeTracker.js` (new) — zig-zag-style reversal detector on the anchor's x-position: tracks a running extreme from a reference point, confirms a "reversal" once the signal retraces `AMPLITUDE_THRESHOLD` (0.06), ends a round on stillness (`STILLNESS_MS = 600`) or a safety cap (`MAX_ROUND_MS = 4000`), then scores it: `ampNorm` (mean reversal amplitude vs. a target range), `consistency` (inverted coefficient-of-variation of inter-reversal intervals — this is what encodes "too fast = erratic," not literal speed), `tempoRateNorm` (reversals/sec vs. a `[1.5, 4]` band). Composite `score = 100 * (0.45*ampNorm + 0.35*consistency + 0.20*tempoRateNorm)`, bucketed too-slow (amplitude checked first) / too-fast (inconsistent) / perfect.
+- `src/aura/VaporVariant.js` (new, replaces `src/aura/EdgeVariant.js` — **deleted**) — soft radial-gradient mist dots instead of jagged lightning-arc polylines. Idle motion is a gentle upward drift + jitter; blends toward streaming in the shake's direction as `motionEnergy01` rises, so a confident shake reads as visibly denser/more coherent than a weak one. Lower `drag` (0.6-1.1) and longer `maxLife` (0.9-1.6s) than Edge so mist lingers/drifts instead of snapping. Reuses `AuraRenderer.js`'s existing additive `globalCompositeOperation = 'lighter'` blending unchanged.
+- `src/state/appStateMachine.js` — added `SHAKE_RESULTS` state, `LIVE_AURA + SHAKE_COMPLETE -> SHAKE_RESULTS`, `SHAKE_RESULTS + RETRY -> LIVE_AURA`. No origin-tracking sentinel needed (reachable from exactly one place, same reasoning that led this codebase to revert its earlier `RETURN_TO_ORIGIN` mechanism once it became single-branch).
+- `src/screens/ShakeResultsScreen.js` (new) — score + bucket copy + a single Retry button, following `CapturePreviewScreen.js`'s minimal template-string pattern. **No direct capture path from results** — confirmed with the user: capture still happens via the existing button back in `LIVE_AURA`, so `CAPTURE_PREVIEW`/`SHARE`/the whole capture pipeline are untouched.
+- `src/screens/LiveAuraScreen.js` — swapped `EdgeVariant` → `VaporVariant`; instantiates `shakeTracker`, feeding it the same anchor computed for `renderer.setAnchor` inside `drawDetections`, with its own wall-clock `dt` (detections arrive at ~15Hz, not per-rAF, mirroring `AuraRenderer.js`'s own `lastTime`/`dt` pattern). `onShakeComplete` added to the screen's options; `shakeTracker.reset()` added to `unmount()`.
+- `src/screens/TouchCanvasFallbackScreen.js` — one-line variant swap only (`EdgeVariant` → `VaporVariant`); no other changes needed since it already only feeds anchors while a pointer is actively down, so the new motion gate applies for free.
+- `src/main.js` — new `SHAKE_RESULTS` case in `render()`, `lastShakeResult` module-level state, `onShakeComplete` callback wired into the `LIVE_AURA` case following the exact same shape as `handleCapture`/`onCapture`.
+- Explicitly unchanged, per the user's decision: `src/capture/*`, `src/share/shareSheet.js`, `CapturePreviewScreen.js`, `ShareScreen.js` — no slow-mo, no score-burned video, no re-encoding.
+- Added `tests/e2e/stateMachine.spec.js` cases for the new transitions (`LIVE_AURA + SHAKE_COMPLETE -> SHAKE_RESULTS` + retry, and confirming `SHAKE_RESULTS` has no other outgoing transitions).
+
+**Verified so far (desktop/headless, not yet real-device):**
+- `npm run build` succeeds; `npm run test:unit` (11/11, including the 2 new FSM cases) and `npx playwright test` (2/2, existing fallback/share specs unmodified — confirms capture/share wasn't disturbed) all green.
+- Ad-hoc Playwright pixel-read smoke check (written, verified, then discarded — not part of the committed suite, matching this project's established pattern from Session 4): on the Touch Canvas fallback, held a pointer down without moving for 700ms and read the aura canvas's pixel buffer — confirmed **zero** non-transparent pixels (no particles while genuinely still, the core "particles only released on shake" property). Then moved the pointer back and forth several times and re-read the buffer — confirmed non-transparent pixels appear once there's real motion. This is the first real evidence the motion-energy gate actually works end-to-end in a browser engine, not just at the unit level.
+
+**Not yet real-device confirmed** (same gap pattern as every prior visual/tuning session):
+1. Whether a real head-shake in front of the camera actually produces a well-scored round — the `shakeTracker.js` constants (`AMPLITUDE_THRESHOLD`, `STILLNESS_MS`, `MAX_ROUND_MS`, `TEMPO_MIN`/`MAX`, `AMP_MIN`/`AMP_TARGET`) are explicit starting estimates, not measured against a real face-tracked shake.
+2. Whether the vapor look (density, drift, coherence-with-energy) actually reads as intended against a real face, not a synthetic mouse drag.
+3. `AuraRenderer.js`'s `ENERGY_SMOOTHING`/`ENERGY_MAX`/`MOTION_GATE_THRESHOLD` — tuned by feel, not measured against real detection-rate anchor updates (~15Hz on a real device vs. this session's desktop/headless testing).
+
+**Next:** real-device retest (Android) per the plan's Session 8 done-criteria — confirm no idle particles standing still, a real shake produces a scored round landing on the results screen, Retry cleanly starts a fresh round, and tune the constants above by feel.
