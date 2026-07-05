@@ -21,8 +21,16 @@ export function createAuraRenderer(canvas, variant) {
   let lastTime = 0
 
   function resize() {
-    width = canvas.width = canvas.clientWidth
-    height = canvas.height = canvas.clientHeight
+    const dpr = window.devicePixelRatio || 1
+    // Keep `width`/`height` (used by every draw call below) in CSS-pixel
+    // logical space; size the actual backing store up by dpr and scale the
+    // context to match, so the canvas renders crisply on real 2-3x DPR
+    // phone screens instead of at 1 canvas-px-per-CSS-px softness.
+    width = canvas.clientWidth
+    height = canvas.clientHeight
+    canvas.width = Math.round(width * dpr)
+    canvas.height = Math.round(height * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
   function setAnchor(anchor) {

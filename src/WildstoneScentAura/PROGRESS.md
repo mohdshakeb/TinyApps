@@ -183,3 +183,38 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 3. Desktop Safari — informal manual test in progress as of this entry; result not yet logged.
 
 **Next:** deploy and test on the real Android device (available now) and manually on Mac Safari before treating this as anything more than "built, not yet demo-safe." If Android fails, that's a more urgent signal than a desktop-Safari pass either way, since Android is this project's actual tested-and-working camera/perf baseline.
+
+**Real-device retest confirms both available platforms — Session 5 is DONE (with the standing iPhone gap):**
+- **Android:** confirmed working — snapshot and long-press video capture both record correctly, preview/share flow completes end-to-end on the deployed Vercel URL.
+- **Desktop Safari:** confirmed working — same flow. One observation, not a bug: on a genuinely cold cache (first-ever load), the aura particles took a few seconds longer to appear than on a warm reload. Root cause is expected face-tracker warm-up (the ~22MB self-hosted WASM/model payload finishing its first parse/JIT + the `FaceDetector`'s first inference call generally being slower than steady-state), not a code defect — did not recur on subsequent loads. No fix needed; noting it here so it isn't mistaken for a regression later.
+- **iPhone:** still not available. This remains the one standing gap across Sessions 1, 2, and 5 — carried forward, not blocking, exactly as previously logged.
+
+**Session 5 (snapshot + video capture, both branches' scope as corrected above) is done.** Session 6 (broad real-device compatibility pass) is next.
+
+---
+
+## Session 6 — deferred; jumped to Session 7 instead
+
+**Date:** 2026-07-05
+
+Session 6 ("Broad real-device compatibility pass #1") explicitly needs 2+ iOS Safari devices/versions and 2+ Android Chrome tiers, which this project doesn't have (still just one Android device, no iPhone — the standing gap from Sessions 1/2/5). Rather than do a half-covered pass now, this is deferred until more devices are available, and Session 7 was done instead since it doesn't depend on a device matrix.
+
+---
+
+## Session 7 — Visual polish + Canvas2D vs. WebGL decision
+
+**Date:** 2026-07-05
+
+**WebGL decision (the plan's explicit ask for this session):** staying on Canvas2D, not building a WebGL backend. Sessions 2 and 4 already confirmed steady 60fps on real Android hardware with the Worker-offloaded face detector *and* the Canvas2D particle system running together — there's no perf headroom problem to solve, so a WebGL rewrite would only add engineering risk (shader/context-loss edge cases across an unknown client GPU) for no measured benefit this close to demo-ready. This closes out the "WebGL as optional stretch" branch of the original architecture decision.
+
+**Applied this workspace's mandatory UI skills** (`emil-design-eng`, `interface-design`) per `CLAUDE.md`. Note: two of the four named there (`impeccable`, `ui-skills`) aren't in the current skill list — likely renamed/superseded — so used the closest available equivalents. No `.interface-design/system.md` exists (this is a single small CSS file, not a component system), and creating one now is disproportionate to what's left in the plan, so audited directly against the actual CSS instead of formally running `/interface-design:init`.
+
+**Found and fixed a real bug, not just polish:** `AuraRenderer.js`'s `resize()` sized the canvas backing store to `canvas.clientWidth`/`clientHeight` (CSS pixels) with no `devicePixelRatio` handling — on a real 2-3x DPR phone screen this renders the aura (and the Touch Canvas fallback, which shares the same renderer) softer/more aliased than it should. Fixed by sizing the backing store to `clientWidth * dpr` and applying `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`, so every existing draw call (particle positions, stroke widths, the debug overlay) keeps working in CSS-pixel logical space unchanged — only the actual bitmap resolution goes up. Verified via a Playwright smoke test at `deviceScaleFactor: 3` (simulating a real high-DPR phone): canvas backing store correctly scales to 3x, composite still renders correctly positioned with no distortion. This also means captured snapshots/videos are now higher-resolution automatically (same `auraCanvas.width`/`height` values are what `compositeFrame.js` reads for output size) — worth a quick eye on real-device video-capture perf next time, since compositing more pixels at 30fps is marginally more expensive than before (not expected to matter, but not yet measured on real hardware post-fix).
+
+**Smaller polish fixes:**
+- Custom `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` replacing plain `ease` on button/capture-button transitions (`emil-design-eng`: built-in easings are weak; a stronger custom curve gives press feedback more snap at the same duration).
+- Added `@media (prefers-reduced-motion: reduce)` for the purely decorative `recording-pulse` glow. Deliberately left the loading spinner's rotation and the aura's own face-tracked motion alone — the spinner's rotation is the only thing communicating "still loading" (removing it removes information, not just decoration), and the aura's motion is the feature itself, not chrome.
+
+**Verified:** `npm run test:unit` (9/9), `npx playwright test` (2/2), `npm run build` all green; DPR fix visually smoke-checked per above. **Not yet confirmed on a real phone** — the DPR crispness improvement and the marginal video-capture compositing cost both need real-device eyes (Android, the one device available) before this can be called fully done.
+
+**Next:** real-device retest of this session's changes, then either Session 8 (bundle/load-perf) or Session 9 (edge-case hardening) — Session 6 stays deferred until more devices are available.
