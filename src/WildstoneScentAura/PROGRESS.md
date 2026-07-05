@@ -93,7 +93,11 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
   - Added `@playwright/test` as a devDependency + `playwright.config.js` (ignores `stateMachine.spec.js` so the two test runners don't collide over the same folder); `.gitignore` updated for `playwright-report`/`test-results`.
 - Manually verified visually (desktop, via a Playwright screenshot script, not committed): Splash and Touch Canvas Fallback screens both render as intended.
 
-**Not yet done:**
-- Manual navigation on a **real phone** (only verified on desktop/headless so far) — the plan's actual "done when" criteria requires this. Next real-device retest should confirm Splash → Start → (permission/loading) → Live Aura with the debug bounding-box overlay drawing correctly, on Android at least.
+**Real-device retest (Android) — Session 3 DONE:**
+- Splash → Start → Live Aura navigates correctly; debug bounding-box overlay draws over the live camera feed accurately enough to confirm tracking is working end-to-end through the new screen shell.
+- Forced-deny path also confirmed: denying/losing the camera lands cleanly on the Touch Canvas Fallback placeholder instead of hanging or crashing.
+- iPhone confirmation still pending (no iPhone available yet, same standing gap as Sessions 1-2).
+
+**Not yet done / carried forward:**
 - `LiveAuraScreen`'s bounding-box coordinate mapping is an approximation (ignores the `object-fit: cover` crop offset) — fine for a debug overlay, but Session 4's real aura anchor will need exact cover-crop math.
 - Capture/Share screens and the Touch Canvas drag interaction are intentionally not built yet — Sessions 4 and 5.
