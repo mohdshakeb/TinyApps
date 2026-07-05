@@ -8,9 +8,7 @@ let busy = false
 
 export function initFaceTracker() {
   return new Promise((resolve, reject) => {
-    worker = new Worker(new URL('./faceTrackerWorker.js', import.meta.url), {
-      type: 'module',
-    })
+    worker = new Worker(new URL('./faceTrackerWorker.js', import.meta.url))
     worker.onerror = (event) => {
       reject(new Error(event.message || 'faceTrackerWorker failed to load'))
     }
