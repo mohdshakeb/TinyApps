@@ -1,4 +1,5 @@
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision'
+import { tickFrame, recordDetectionLatency } from '../utils/perfMonitor.js'
 
 const WASM_BASE_PATH = '/mediapipe/wasm'
 const MODEL_PATH = '/mediapipe/models/blaze_face_short_range.tflite'
@@ -21,9 +22,12 @@ export function startDetectionLoop(videoEl, onDetections) {
   let lastDetectTime = 0
 
   function tick(now) {
+    tickFrame()
     if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
       lastDetectTime = now
+      const detectStart = performance.now()
       const result = faceDetector.detectForVideo(videoEl, now)
+      recordDetectionLatency(performance.now() - detectStart)
       onDetections(result.detections)
     }
     requestAnimationFrame(tick)

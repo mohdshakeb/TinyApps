@@ -34,6 +34,19 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - `delegate: 'GPU'` works fine on this device — no CPU-delegate fallback needed so far, but this is only one Android device; broader devices come in Session 2's perf spike and Session 6's compatibility pass.
 - **Not yet tested on iOS** — first iOS real-device test is Session 1 (video-capture spike), which needs a real iPhone anyway.
 
-**Next session (Session 1 — iOS video-capture spike):**
-- Build the throwaway capture harness (video+canvas composite → `captureStream()` → `MediaRecorder` → download link) and test on a real iPhone.
-- The `?debug=1` overlay is available to use here too if console output is needed on the iPhone during the spike.
+**Sequencing change:** Session 1 (iOS video-capture spike) is deferred — no iPhone available right now. Reordered to do the Android half of Session 2 (face-detection perf) first instead, since Android is available. Session 1 and the iPhone half of Session 2 remain open until an iPhone is available; nothing else in the plan is blocked by this since capture-flag/UI work (Session 5) already only wires video capture conditionally on Session 1's result.
+
+---
+
+## Session 2 (Android half) — face-detection perf spike
+
+**Date:** 2026-07-05
+
+**Done:**
+- Built `src/utils/perfMonitor.js`: tracks main-thread rAF frame rate and rolling-average `detectForVideo()` latency, reports via `console.log` once/sec (visible in the `?debug=1` overlay).
+- Wired into `faceTracker.js`'s detection loop: `tickFrame()` called every rAF tick (measures overall main-thread FPS, not just detection-loop rate), latency measured around each `detectForVideo()` call.
+
+**Not yet done:**
+- Actual real-device numbers — need you to open `https://tiny-apps.vercel.app/?debug=1` on the Android device again and report what the `[perf] mainThreadFps=... avgDetectLatency=...ms` lines show after a few seconds of the camera tracking your face.
+- Based on those numbers: decide whether the current ~15Hz detection throttle + main-thread-only approach is sufficient, or whether a Worker/OffscreenCanvas split is needed (per the conditional architecture decision in `Planning/CONTEXT.md`).
+- iPhone half of this session (perf on real iOS hardware) — deferred until an iPhone is available.
