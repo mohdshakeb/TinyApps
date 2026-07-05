@@ -9,8 +9,11 @@
 
 // Deadzone on motion energy so residual anchor-smoothing noise (present even
 // when the face/pointer is genuinely still) doesn't dribble particles -- the
-// whole point of this gate is "particles only released on shake."
-const MOTION_GATE_THRESHOLD = 0.05
+// whole point of this gate is "particles only released on shake." Kept low
+// deliberately: even a gentle/slow shake should still release *some*
+// particles (sparse, per the vapor variant's low-energy look) rather than
+// nothing at all -- "no particles" reads as broken, not as "too slow."
+const MOTION_GATE_THRESHOLD = 0.02
 
 export function createParticleSystem(variant, { maxParticles = 220 } = {}) {
   let particles = []

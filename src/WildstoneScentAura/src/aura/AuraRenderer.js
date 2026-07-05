@@ -4,14 +4,23 @@ const NEUTRAL_ANCHOR = { x: 0.5, y: 0.5, scale: 1, confidence: 0 }
 const SMOOTHING = 0.22 // per-frame lerp factor toward the latest anchor
 const MAX_DT = 0.05 // clamp dt so a tab coming back from background doesn't spawn a burst
 
-// Motion-energy signal: how fast the (already-smoothed) anchor is currently
-// moving, in normalized-display-units/sec, EMA-smoothed and clamped into a
-// 0-1 range. This is the generic "is something shaking right now" signal
-// particleSystem.js gates emission on -- deliberately computed here rather
-// than in a separate module, since `smoothedAnchor` is already the only
-// place cross-frame anchor state exists in this codebase.
-const ENERGY_SMOOTHING = 0.25
-const ENERGY_MAX = 6
+// Motion-energy signal: how fast the anchor is actually moving, in
+// normalized-display-units/sec, clamped into a 0-1 range. This is the
+// generic "is something shaking right now" signal particleSystem.js gates
+// emission on -- deliberately computed here rather than in a separate
+// module, since this is the one place cross-frame anchor state exists in
+// this codebase.
+//
+// Measured from raw anchor arrivals (in `setAnchor`, diffed against the
+// previous raw anchor over the real wall-clock time between updates), NOT
+// from `smoothedAnchor`'s per-frame lerp -- diffing the lerped render value
+// would measure a diluted fraction of the real movement, since a single real
+// detection update only nudges `smoothedAnchor` partway there over several
+// render frames. At the ~15Hz throttled face-detection rate that dilution is
+// severe enough to make real head-shake motion nearly invisible to the gate.
+const ENERGY_RISE_ALPHA = 0.5 // how much a fresh raw sample pulls energy toward it
+const ENERGY_DECAY_PER_SEC = 4 // exponential decay applied every render frame
+const ENERGY_MAX = 3 // clamp ceiling for raw (unsmoothed) anchor speed
 
 // Canvas2D implementation behind the swappable `AuraRenderer` seam (see
 // Planning/CONTEXT.md). Runs its own rAF loop independent of the ~15Hz
@@ -26,10 +35,16 @@ export function createAuraRenderer(canvas, variant) {
   let height = 0
   let targetAnchor = NEUTRAL_ANCHOR
   let smoothedAnchor = { ...NEUTRAL_ANCHOR }
-  let prevAnchor = { ...NEUTRAL_ANCHOR }
-  let motionEnergy = 0
   let rafId = null
   let lastTime = 0
+
+  // Raw (unsmoothed) motion tracking -- separate from smoothedAnchor above,
+  // which is purely a rendering concern.
+  let lastRawAnchor = null
+  let lastRawAnchorTime = 0
+  let motionEnergy = 0
+  let motionDirX = 0
+  let motionDirY = 0
 
   function resize() {
     const dpr = window.devicePixelRatio || 1
@@ -45,6 +60,27 @@ export function createAuraRenderer(canvas, variant) {
   }
 
   function setAnchor(anchor) {
+    // Measure real motion here, at the moment a fresh detection/pointer
+    // sample actually arrives -- using the true wall-clock gap since the
+    // last sample, not the render frame's dt (which has nothing to do with
+    // how often real anchor updates land).
+    const now = performance.now()
+    if (lastRawAnchor && lastRawAnchorTime) {
+      const rawDt = (now - lastRawAnchorTime) / 1000
+      if (rawDt > 0.001) {
+        const dx = anchor.x - lastRawAnchor.x
+        const dy = anchor.y - lastRawAnchor.y
+        const mag = Math.hypot(dx, dy)
+        const rawSpeed = mag / rawDt
+        motionEnergy = Math.min(motionEnergy + (rawSpeed - motionEnergy) * ENERGY_RISE_ALPHA, ENERGY_MAX)
+        if (mag > 1e-4) {
+          motionDirX = dx / mag
+          motionDirY = dy / mag
+        }
+      }
+    }
+    lastRawAnchor = anchor
+    lastRawAnchorTime = now
     targetAnchor = anchor
   }
 
@@ -59,28 +95,13 @@ export function createAuraRenderer(canvas, variant) {
       confidence: targetAnchor.confidence,
     }
 
-    // Diff against last frame's (already-smoothed) anchor for a generic
-    // motion signal -- skipped on the very first frame after start() (dt=0)
-    // so a large jump from a stale prevAnchor can't fake an energy spike.
-    let dirX = 0
-    let dirY = 0
-    if (dt > 0) {
-      const dx = smoothedAnchor.x - prevAnchor.x
-      const dy = smoothedAnchor.y - prevAnchor.y
-      const rawSpeed = Math.hypot(dx, dy) / dt
-      motionEnergy += (rawSpeed - motionEnergy) * ENERGY_SMOOTHING
-      motionEnergy = Math.max(0, Math.min(motionEnergy, ENERGY_MAX))
-      const mag = Math.hypot(dx, dy)
-      if (mag > 1e-4) {
-        dirX = dx / mag
-        dirY = dy / mag
-      }
-    }
-    const energy01 = motionEnergy / ENERGY_MAX
-    prevAnchor = smoothedAnchor
+    // Decay motion energy every render frame so it falls back to ~0 shortly
+    // after real motion stops, independent of how often setAnchor fires.
+    if (dt > 0) motionEnergy *= Math.exp(-ENERGY_DECAY_PER_SEC * dt)
+    const energy01 = Math.min(1, motionEnergy / ENERGY_MAX)
 
     ctx.clearRect(0, 0, width, height)
-    particleSystem.update(dt, smoothedAnchor, width, height, energy01, dirX, dirY)
+    particleSystem.update(dt, smoothedAnchor, width, height, energy01, motionDirX, motionDirY)
 
     ctx.save()
     ctx.globalCompositeOperation = 'lighter' // cheap additive glow, no per-particle shadowBlur cost
@@ -93,8 +114,11 @@ export function createAuraRenderer(canvas, variant) {
   function start() {
     resize()
     lastTime = 0
-    prevAnchor = smoothedAnchor
+    lastRawAnchor = null
+    lastRawAnchorTime = 0
     motionEnergy = 0
+    motionDirX = 0
+    motionDirY = 0
     if (!rafId) rafId = requestAnimationFrame(frame)
   }
 
