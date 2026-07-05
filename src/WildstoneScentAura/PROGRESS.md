@@ -26,10 +26,14 @@ Read this + `Planning/CONTEXT.md` (Architecture Decisions) before starting a new
 - Server-side `curl` checks against `https://tiny-apps.vercel.app/` all confirm 200: index.html serves the correct markup, `/mediapipe/wasm/vision_wasm_internal.wasm` and `/mediapipe/models/blaze_face_short_range.tflite` both reachable, and the `Permissions-Policy: camera=(self)` header from `vercel.json` is present.
 - Conclusion: the deployment itself is healthy. The 404 was very likely from testing a stale/cached state on the phone (e.g. hitting it before the deployment finished propagating, or a cached error page) rather than an actual config problem. **Not yet confirmed on a real phone with a fresh load** — that's the next step before Session 0 can be marked done.
 
-**Not yet done / blocked:**
-- Real-device validation (the actual "done" criterion for Session 0): open **https://tiny-apps.vercel.app** on a real phone (fresh load, not a cached tab) and confirm camera permission prompt appears, live feed renders, and console logs face detections.
-- `FaceDetector` is currently configured with `delegate: 'GPU'` (untested) — if this errors on a real device/browser, may need a CPU-delegate fallback. Not yet a problem since Session 2 is where real-device perf gets measured properly; flagging so it isn't a surprise.
+**Added an on-screen debug overlay** (`src/utils/debugOverlay.js`, toggled via `?debug=1`) that mirrors console.log/warn/error plus window errors into a visible on-page panel — removes the need for a USB cable + desktop devtools during real-device testing for the rest of this project. First version didn't render on real mobile WebKit due to the CSS `inset` shorthand; fixed by using explicit `top/left/right/bottom` instead.
+
+**Session 0 — DONE, confirmed on real device:**
+- Tested on Android, both Chrome and Brave, at `https://tiny-apps.vercel.app`: camera permission prompt appears, live feed renders correctly on both browsers.
+- Tested with `?debug=1`: on-screen panel shows continuous `[faceTracker] detections:` lines as the face moves in frame — confirms the full pipeline (self-hosted WASM → GPU-delegate FaceDetector → per-frame detection) works end-to-end on a real device, not just locally.
+- `delegate: 'GPU'` works fine on this device — no CPU-delegate fallback needed so far, but this is only one Android device; broader devices come in Session 2's perf spike and Session 6's compatibility pass.
+- **Not yet tested on iOS** — first iOS real-device test is Session 1 (video-capture spike), which needs a real iPhone anyway.
 
 **Next session (Session 1 — iOS video-capture spike):**
 - Build the throwaway capture harness (video+canvas composite → `captureStream()` → `MediaRecorder` → download link) and test on a real iPhone.
-- Before starting, confirm Session 0's real-device test passed (camera + tracking working on https://tiny-apps.vercel.app) — if it didn't, fix that first since everything else builds on it.
+- The `?debug=1` overlay is available to use here too if console output is needed on the iPhone during the spike.
