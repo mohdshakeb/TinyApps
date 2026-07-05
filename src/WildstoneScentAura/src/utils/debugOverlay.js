@@ -8,7 +8,11 @@ export function initDebugOverlay() {
   panel.id = 'debug-overlay'
   Object.assign(panel.style, {
     position: 'fixed',
-    inset: 'auto 0 0 0',
+    top: 'auto',
+    left: '0',
+    right: '0',
+    bottom: '0',
+    width: '100%',
     maxHeight: '40vh',
     overflowY: 'auto',
     background: 'rgba(10, 10, 15, 0.9)',
