@@ -1,7 +1,9 @@
 // Variant-agnostic particle pool. A variant supplies only `emissionRate`,
-// `createParticle(originX, originY, scale)`, and `drawParticle(ctx, particle)`
-// -- this module owns the pool, emission timing, and generic velocity/drag/
-// life physics, so Red and Intense Black variants can reuse it unchanged.
+// `createParticle(originX, originY, scale, width, height)`, and
+// `drawParticle(ctx, particle)` -- this module owns the pool, emission
+// timing, and generic velocity/drag/life physics, so Red and Intense Black
+// variants can reuse it unchanged. `width`/`height` are passed through so a
+// variant can size itself (e.g. a spawn-ring radius) relative to the canvas.
 
 export function createParticleSystem(variant, { maxParticles = 220 } = {}) {
   let particles = []
@@ -13,7 +15,7 @@ export function createParticleSystem(variant, { maxParticles = 220 } = {}) {
       const originX = anchor.x * width
       const originY = anchor.y * height
       while (emitAccumulator >= 1 && particles.length < maxParticles) {
-        particles.push(variant.createParticle(originX, originY, anchor.scale))
+        particles.push(variant.createParticle(originX, originY, anchor.scale, width, height))
         emitAccumulator -= 1
       }
     }
