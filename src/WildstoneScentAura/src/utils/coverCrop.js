@@ -29,7 +29,7 @@ export function mirrorX(x, displayWidth) {
 
 // Source-rect crop (in the video's native pixel space) that reproduces CSS
 // `object-fit: cover` when passed to the 9-arg `drawImage(video, sx, sy, sw,
-// sh, dx, dy, dw, dh)` -- used by snapshotCapture.js to composite a capture
+// sh, dx, dy, dw, dh)` -- used by compositeFrame.js to composite a capture
 // canvas that matches what the user visually sees in the live preview.
 export function coverDrawParams(videoWidth, videoHeight, displayWidth, displayHeight) {
   const coverScale = coverScaleFor(videoWidth, videoHeight, displayWidth, displayHeight)

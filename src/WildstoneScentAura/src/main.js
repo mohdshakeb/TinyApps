@@ -6,7 +6,6 @@ import { mountSplashScreen } from './screens/SplashScreen.js'
 import { mountPermissionScreen } from './screens/PermissionScreen.js'
 import { mountLiveAuraScreen } from './screens/LiveAuraScreen.js'
 import { mountTouchCanvasFallbackScreen } from './screens/TouchCanvasFallbackScreen.js'
-import { mountShakeResultsScreen } from './screens/ShakeResultsScreen.js'
 import { mountCapturePreviewScreen } from './screens/CapturePreviewScreen.js'
 import { mountShareScreen } from './screens/ShareScreen.js'
 
@@ -23,7 +22,6 @@ function setScreen(screen) {
 
 let capturedBlob = null
 let capturedUrl = null
-let lastShakeResult = null
 
 function handleCapture(blob) {
   revokeCapture()
@@ -62,24 +60,11 @@ function render(state) {
       const screen = mountLiveAuraScreen(root, {
         videoEl,
         onCapture: handleCapture,
-        onShakeComplete: (result) => {
-          lastShakeResult = result
-          machine.send('SHAKE_COMPLETE')
-        },
       })
       setScreen(screen)
       startDetectionLoop(videoEl, (detections) => screen.drawDetections(detections))
       break
     }
-
-    case States.SHAKE_RESULTS:
-      setScreen(
-        mountShakeResultsScreen(root, {
-          result: lastShakeResult,
-          onRetry: () => machine.send('RETRY'),
-        })
-      )
-      break
 
     case States.FALLBACK_TOUCH_CANVAS:
       setScreen(mountTouchCanvasFallbackScreen(root))

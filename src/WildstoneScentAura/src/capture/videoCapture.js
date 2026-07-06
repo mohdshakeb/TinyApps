@@ -1,6 +1,9 @@
 import { compositeFrame } from './compositeFrame.js'
 
-const MAX_DURATION_MS = 5000 // PRD: "a 5-second looping video sequence"
+// Session 9 pivot: this is no longer a user-held long-press clip -- tapping
+// "Release your aura" auto-starts a fixed 10-second scored capture (was 5s,
+// per the original PRD's "looping video sequence").
+const MAX_DURATION_MS = 10000
 const RECORD_FPS = 30
 
 // Safari (desktop and iOS) has never supported the 'video/webm' container
@@ -21,21 +24,35 @@ function pickSupportedMimeType() {
   return MIME_CANDIDATES.find((type) => MediaRecorder.isTypeSupported?.(type))
 }
 
-// Starts recording a composited (video + aura + watermark) canvas via
-// canvas.captureStream() -> MediaRecorder, driven by its own rAF loop
-// (independent of the aura's own renderer) so the recorded frames always
-// reflect the latest composite. Returns a handle: call `stop()` to end the
-// recording early (e.g. the user released a long-press before 5s); it also
-// auto-stops at `maxDurationMs` regardless. `done` resolves with the
-// recorded Blob once the recorder has actually flushed and stopped.
-export function startVideoCapture({ width, height, videoEl, auraCanvas, maxDurationMs = MAX_DURATION_MS }) {
+// Starts recording a composited (video + aura + score overlay + watermark)
+// canvas via canvas.captureStream() -> MediaRecorder, driven by its own rAF
+// loop (independent of the aura's own renderer) so the recorded frames
+// always reflect the latest composite. Returns a handle: `stop()` ends the
+// recording early (used on unmount to cancel an in-flight capture, not a
+// user gesture anymore -- see LiveAuraScreen.js); it also auto-stops at
+// `maxDurationMs` regardless. `done` resolves with the recorded Blob once
+// the recorder has actually flushed and stopped.
+//
+// `getScoreResult` is polled once per composited frame rather than passed as
+// a single value, since the score isn't known at recording-start time -- it
+// only becomes non-null partway through, once the caller's shakeTracker
+// round completes (see shakeTracker.js's `locked` behavior), and every frame
+// after that needs to keep drawing it.
+export function startVideoCapture({
+  width,
+  height,
+  videoEl,
+  auraCanvas,
+  maxDurationMs = MAX_DURATION_MS,
+  getScoreResult = () => null,
+}) {
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
 
   let rafId = requestAnimationFrame(function draw() {
-    compositeFrame(ctx, { width, height, videoEl, auraCanvas })
+    compositeFrame(ctx, { width, height, videoEl, auraCanvas, scoreResult: getScoreResult() })
     rafId = requestAnimationFrame(draw)
   })
 

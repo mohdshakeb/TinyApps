@@ -3,7 +3,6 @@ export const States = Object.freeze({
   PERMISSION_REQUEST: 'PERMISSION_REQUEST',
   CAMERA_INITIALIZING: 'CAMERA_INITIALIZING',
   LIVE_AURA: 'LIVE_AURA',
-  SHAKE_RESULTS: 'SHAKE_RESULTS',
   CAPTURE_PREVIEW: 'CAPTURE_PREVIEW',
   SHARE: 'SHARE',
   FALLBACK_TOUCH_CANVAS: 'FALLBACK_TOUCH_CANVAS',
@@ -22,12 +21,12 @@ const TRANSITIONS = {
     FAILED: States.FALLBACK_TOUCH_CANVAS,
   },
   [States.LIVE_AURA]: {
+    // Session 9: completing a shake round no longer transitions screens on
+    // its own (see LiveAuraScreen.js/shakeTracker.js) -- it only locks a
+    // score that gets burned into the recording in progress. CAPTURE is what
+    // this state now waits for, firing once that 10s recording resolves.
     CAPTURE: States.CAPTURE_PREVIEW,
     CAMERA_LOST: States.FALLBACK_TOUCH_CANVAS,
-    SHAKE_COMPLETE: States.SHAKE_RESULTS,
-  },
-  [States.SHAKE_RESULTS]: {
-    RETRY: States.LIVE_AURA,
   },
   [States.CAPTURE_PREVIEW]: {
     RETRY: States.LIVE_AURA,

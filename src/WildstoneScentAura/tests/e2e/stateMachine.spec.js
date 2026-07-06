@@ -54,21 +54,6 @@ test('capture/share loop: LIVE_AURA -> CAPTURE_PREVIEW -> SHARE -> LIVE_AURA, an
   assert.equal(machine.getState(), States.LIVE_AURA)
 })
 
-test('shake round complete -> SHAKE_RESULTS, and retry returns to LIVE_AURA', () => {
-  const machine = createStateMachine(States.LIVE_AURA)
-  machine.send('SHAKE_COMPLETE')
-  assert.equal(machine.getState(), States.SHAKE_RESULTS)
-  machine.send('RETRY')
-  assert.equal(machine.getState(), States.LIVE_AURA)
-})
-
-test('SHAKE_RESULTS has no other outgoing transitions', () => {
-  const machine = createStateMachine(States.SHAKE_RESULTS)
-  const result = machine.send('CAPTURE')
-  assert.equal(result, States.SHAKE_RESULTS)
-  assert.equal(machine.getState(), States.SHAKE_RESULTS)
-})
-
 test('Touch Canvas fallback is messaging/insurance only -- CAPTURE is a no-op there', () => {
   const machine = createStateMachine(States.FALLBACK_TOUCH_CANVAS)
   const result = machine.send('CAPTURE')

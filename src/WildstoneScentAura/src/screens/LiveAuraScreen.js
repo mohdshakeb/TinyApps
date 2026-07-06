@@ -3,81 +3,79 @@ import { VaporVariant } from '../aura/VaporVariant.js'
 import { createShakeTracker } from '../aura/shakeTracker.js'
 import { detectionsToAnchor } from '../tracking/faceAnchor.js'
 import { mapCoverPoint, mirrorX } from '../utils/coverCrop.js'
-import { captureSnapshot } from '../capture/snapshotCapture.js'
 import { startVideoCapture, isVideoCaptureSupported } from '../capture/videoCapture.js'
 import { ENABLE_VIDEO_CAPTURE } from '../capture/captureFeatureFlags.js'
 
 const isDebug = new URLSearchParams(location.search).get('debug') === '1'
-const LONG_PRESS_MS = 350
+// Video is the sole capture path now (no snapshot fallback) -- unlike the
+// old long-press gesture, which just quietly stayed snapshot-only if this
+// were false, there's no fallback left to fall back to, so an unsupported
+// browser needs to visibly disable the button rather than throw once tapped.
 const videoCaptureReady = ENABLE_VIDEO_CAPTURE && isVideoCaptureSupported()
 
-export function mountLiveAuraScreen(root, { videoEl, onCapture, onShakeComplete }) {
+// Session 9 pivot: LIVE_AURA now has two sub-states instead of always being
+// "hot" -- idle (camera + face tracking live, particles/shakeTracker gated
+// off, "Release your aura" shown) and armed (tapping the button opens the
+// particle gate, starts shakeTracker, and auto-starts a fixed 10s scored
+// recording, all at once). The old always-on tap=snapshot/long-press=video
+// capture button is gone entirely -- this is the sole capture trigger now.
+export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   videoEl.style.display = 'block'
 
   const auraCanvas = document.createElement('canvas')
   auraCanvas.className = 'aura-canvas'
   root.appendChild(auraCanvas)
   const renderer = createAuraRenderer(auraCanvas, VaporVariant)
-  const shakeTracker = createShakeTracker({ onRoundComplete: onShakeComplete })
+
+  let armed = false
+  let lockedResult = null // set once shakeTracker's round completes; read every recorded frame
+  const shakeTracker = createShakeTracker({
+    onRoundComplete: (result) => {
+      lockedResult = result
+    },
+  })
   let lastDetectionTime = 0
-
-  const captureBtn = document.createElement('button')
-  captureBtn.type = 'button'
-  captureBtn.className = 'capture-btn'
-  captureBtn.setAttribute('aria-label', 'Capture')
-  root.appendChild(captureBtn)
-
-  // Tap = snapshot, long-press = video (PRD). A held press only *becomes* a
-  // recording after LONG_PRESS_MS -- a quick tap never starts one, so the
-  // 'click' handler below is the tap path. `longPressEngaged` suppresses
-  // that same 'click' (which still fires natively after the press releases)
-  // once a recording has already handled the capture itself.
-  let pressTimer = null
-  let longPressEngaged = false
   let activeRecording = null
 
-  function armLongPress() {
-    if (!videoCaptureReady) return
-    pressTimer = setTimeout(() => {
-      pressTimer = null
-      longPressEngaged = true
-      beginRecording()
-    }, LONG_PRESS_MS)
-  }
+  const releaseBtn = document.createElement('button')
+  releaseBtn.type = 'button'
+  releaseBtn.className = 'release-btn'
+  releaseBtn.textContent = videoCaptureReady ? 'Release your aura' : 'Capture unavailable'
+  releaseBtn.disabled = !videoCaptureReady
+  root.appendChild(releaseBtn)
 
-  function beginRecording() {
-    captureBtn.classList.add('recording')
-    activeRecording = startVideoCapture({ width: auraCanvas.width, height: auraCanvas.height, videoEl, auraCanvas })
+  function releaseAura() {
+    if (armed || !videoCaptureReady) return
+    armed = true
+    lockedResult = null
+    lastDetectionTime = 0 // don't diff against a stale idle-era timestamp
+    shakeTracker.reset()
+    renderer.setArmed(true)
+    releaseBtn.disabled = true
+    releaseBtn.classList.add('recording')
+    releaseBtn.textContent = 'Capturing…'
+
+    activeRecording = startVideoCapture({
+      width: auraCanvas.width,
+      height: auraCanvas.height,
+      videoEl,
+      auraCanvas,
+      getScoreResult: () => lockedResult,
+    })
     activeRecording.done
       .then((blob) => onCapture(blob))
       .catch((err) => console.error('[videoCapture] failed:', err))
       .finally(() => {
-        captureBtn.classList.remove('recording')
+        armed = false
+        renderer.setArmed(false)
+        releaseBtn.disabled = false
+        releaseBtn.classList.remove('recording')
+        releaseBtn.textContent = 'Release your aura'
         activeRecording = null
       })
   }
 
-  function endPress() {
-    if (pressTimer) {
-      clearTimeout(pressTimer)
-      pressTimer = null
-    }
-    activeRecording?.stop()
-  }
-
-  captureBtn.addEventListener('pointerdown', armLongPress)
-  captureBtn.addEventListener('pointerup', endPress)
-  captureBtn.addEventListener('pointercancel', endPress)
-  captureBtn.addEventListener('pointerleave', endPress)
-
-  captureBtn.addEventListener('click', async () => {
-    if (longPressEngaged) {
-      longPressEngaged = false // consumed -- the recording's own onCapture already fired
-      return
-    }
-    const blob = await captureSnapshot({ width: auraCanvas.width, height: auraCanvas.height, videoEl, auraCanvas })
-    onCapture(blob)
-  })
+  releaseBtn.addEventListener('click', releaseAura)
 
   // The bounding-box overlay is a diagnostic tool, not part of the demo --
   // only mount it under `?debug=1` so the aura itself is what's visible live.
@@ -100,6 +98,7 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture, onShakeComplete 
   resize()
   window.addEventListener('resize', resize)
   renderer.start()
+  renderer.setArmed(false) // begin idle -- no particles until "Release your aura" is tapped
 
   function drawDetections(detections) {
     const displayWidth = auraCanvas.clientWidth
@@ -114,13 +113,17 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture, onShakeComplete 
       })
       renderer.setAnchor(anchor)
 
-      // Detections arrive at MediaPipe's throttled rate (~15Hz), not per rAF
-      // frame, so the shake tracker needs its own dt computed from wall-clock
-      // time between calls (mirroring AuraRenderer.js's own lastTime/dt).
-      const now = performance.now()
-      const dt = lastDetectionTime ? Math.min((now - lastDetectionTime) / 1000, 0.2) : 0
-      lastDetectionTime = now
-      shakeTracker.update(dt, anchor)
+      // shakeTracker only runs once armed -- while idle, motion is tracked
+      // for rendering (so the aura anchor is warm) but not scored.
+      if (armed) {
+        // Detections arrive at MediaPipe's throttled rate (~15Hz), not per rAF
+        // frame, so the shake tracker needs its own dt computed from wall-clock
+        // time between calls (mirroring AuraRenderer.js's own lastTime/dt).
+        const now = performance.now()
+        const dt = lastDetectionTime ? Math.min((now - lastDetectionTime) / 1000, 0.2) : 0
+        lastDetectionTime = now
+        shakeTracker.update(dt, anchor)
+      }
     }
 
     if (!debugCtx) return
@@ -142,13 +145,13 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture, onShakeComplete 
     drawDetections,
     unmount() {
       window.removeEventListener('resize', resize)
-      endPress() // stop an in-flight recording rather than leak its rAF loop + open stream
+      activeRecording?.stop() // cancel an in-flight recording rather than leak its rAF loop + open stream
       renderer.stop()
       shakeTracker.reset()
       videoEl.style.display = 'none'
       auraCanvas.remove()
       debugCanvas?.remove()
-      captureBtn.remove()
+      releaseBtn.remove()
     },
   }
 }

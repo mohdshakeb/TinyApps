@@ -156,66 +156,42 @@ html, body {
   margin: 0 auto;
 }
 
-.screen-shake-results {
-  background: radial-gradient(circle at 50% 30%, rgba(79, 195, 255, 0.14), transparent 60%), #0a0a0f;
-}
-
-.shake-results-score {
-  font-size: clamp(4rem, 22vw, 6rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #4fc3ff;
-}
-
-.shake-results-bucket {
-  color: #b7bad1;
-  max-width: 28ch;
-}
-
-.capture-btn {
+/* Session 9: replaces the old always-on tap/hold .capture-btn -- a single
+   deliberate action that arms particles, scoring, and the 10s recording all
+   at once. Score display moved into the recorded video itself
+   (ScoreOverlay.js) -- there's no more standalone results screen. */
+.release-btn {
   position: fixed;
   left: 50%;
   bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 10;
-  width: 72px;
-  height: 72px;
-  border: 4px solid rgba(232, 232, 255, 0.85);
-  border-radius: 50%;
-  background: rgba(10, 10, 15, 0.35);
-  /* A long-press gesture drives video capture -- these stop iOS Safari's
-     press-and-hold text-selection callout from hijacking it. */
+  padding: 16px 36px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #4fc3ff, #2f8fe0);
+  color: #05070d;
+  font: 600 16px/1 -apple-system, system-ui, sans-serif;
+  white-space: nowrap;
+  transition: transform 150ms var(--ease-out), opacity 150ms var(--ease-out), background 150ms var(--ease-out);
   touch-action: manipulation;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
 
-.capture-btn::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  border-radius: 50%;
-  background: #e8e8ff;
-  transition: background 150ms var(--ease-out), border-radius 150ms var(--ease-out);
+.release-btn:active {
+  transform: translateX(-50%) scale(0.96);
 }
 
-.capture-btn:active {
-  transform: translateX(-50%) scale(0.94);
-}
-
-.capture-btn:active::before {
-  background: #4fc3ff;
-}
-
-.capture-btn.recording {
-  border-color: #ff5a5a;
+.release-btn.recording {
+  background: linear-gradient(135deg, #ff8a8a, #ff5a5a);
   animation: recording-pulse 1s ease-in-out infinite;
 }
 
-.capture-btn.recording::before {
-  border-radius: 10px;
-  background: #ff5a5a;
+.release-btn:disabled {
+  background: rgba(232, 232, 255, 0.2);
+  color: rgba(232, 232, 255, 0.6);
 }
 
 @keyframes recording-pulse {
@@ -229,7 +205,7 @@ html, body {
    face-tracked motion is the feature, not decoration, so that's left alone
    too. This only tones down the purely decorative recording-pulse glow. */
 @media (prefers-reduced-motion: reduce) {
-  .capture-btn.recording {
+  .release-btn.recording {
     animation: none;
   }
 }

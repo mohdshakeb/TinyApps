@@ -13,7 +13,12 @@
 const AMPLITUDE_THRESHOLD = 0.06 // normalized 0-1 display-space x-distance to confirm a reversal
 const MOVEMENT_EPSILON = 0.004 // sub-threshold motion still counts as "not idle"
 const STILLNESS_MS = 600 // no movement for this long ends the round
-const MAX_ROUND_MS = 4000 // safety cap so a non-stopping shake doesn't run forever
+// Session 9: the round now needs to fit inside a 10s captured clip instead
+// of a standalone results screen, so this extends from the original 4s to
+// just under that -- STILLNESS_MS is still what normally ends a round (a
+// deliberate pause reads as "I'm done"); this is only the safety cap for a
+// shake that never stops on its own.
+const MAX_ROUND_MS = 9500
 
 const AMP_MIN = 0.03 // barely-there swing
 const AMP_TARGET = 0.12 // a confident head-turn width
@@ -76,6 +81,12 @@ export function createShakeTracker({ onRoundComplete }) {
   let roundStartTime = 0
   let lastMovementTime = 0
   let reversalEvents = []
+  // Session 9: a captured clip scores exactly one round. Once that round
+  // completes, `update` becomes a no-op until `reset()` -- otherwise a user
+  // pausing (round completes) then shaking again before the clip ends would
+  // silently start a second round and overwrite the first score, which
+  // contradicts "the first completed shake is what gets scored."
+  let locked = false
 
   function startRound() {
     roundActive = true
@@ -130,10 +141,13 @@ export function createShakeTracker({ onRoundComplete }) {
     referenceX = prevX
     extremeX = prevX
     reversalEvents = []
+    locked = true
     onRoundComplete(result)
   }
 
   function update(dt, anchor) {
+    if (locked) return
+
     elapsed += dt
 
     if (anchor && anchor.confidence > 0.05) {
@@ -168,6 +182,7 @@ export function createShakeTracker({ onRoundComplete }) {
     roundStartTime = 0
     lastMovementTime = 0
     reversalEvents = []
+    locked = false
   }
 
   return { update, reset }

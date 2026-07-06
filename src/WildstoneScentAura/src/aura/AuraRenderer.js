@@ -38,6 +38,12 @@ export function createAuraRenderer(canvas, variant) {
   let rafId = null
   let lastTime = 0
 
+  // Defaults to true so callers that never touch this (Touch Canvas
+  // fallback) keep today's always-on-while-moving behavior unchanged.
+  // LiveAuraScreen.js is the one caller that flips this off/on around its
+  // idle vs. "released" sub-states (Session 9).
+  let armed = true
+
   // Raw (unsmoothed) motion tracking -- separate from smoothedAnchor above,
   // which is purely a rendering concern.
   let lastRawAnchor = null
@@ -101,7 +107,10 @@ export function createAuraRenderer(canvas, variant) {
     const energy01 = Math.min(1, motionEnergy / ENERGY_MAX)
 
     ctx.clearRect(0, 0, width, height)
-    particleSystem.update(dt, smoothedAnchor, width, height, energy01, motionDirX, motionDirY)
+    // Forcing energy to 0 while unarmed (rather than skipping `update`
+    // entirely) still ages/floats existing particles normally -- only new
+    // emission is gated.
+    particleSystem.update(dt, smoothedAnchor, width, height, armed ? energy01 : 0, motionDirX, motionDirY)
 
     ctx.save()
     ctx.globalCompositeOperation = 'lighter' // cheap additive glow, no per-particle shadowBlur cost
@@ -128,5 +137,9 @@ export function createAuraRenderer(canvas, variant) {
     particleSystem.reset()
   }
 
-  return { start, stop, resize, setAnchor }
+  function setArmed(value) {
+    armed = value
+  }
+
+  return { start, stop, resize, setAnchor, setArmed }
 }
