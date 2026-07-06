@@ -9,18 +9,43 @@
 // die: they hand off to particleSystem.js's idle-float phase so the aura
 // keeps floating around the person for the rest of the capture.
 
-const COLORS = ['#ff5fa2', '#7c5cff', '#3ec9ff', '#2fe6c0', '#ffcf5c', '#ffffff']
+// Session 10.2 (match `docs/references/image.png`): that reference is
+// mostly warm-white pinpoint sparkle with only occasional saturated color --
+// not an even split across six fully-saturated hues. Weighted by duplicate
+// entries (simplest way to bias `rand`-style array indexing without a
+// separate weighting table) rather than an even distribution.
+const COLORS = [
+  '#ffffff',
+  '#ffffff',
+  '#ffffff',
+  '#fff4d9',
+  '#fff4d9',
+  '#ffcf5c',
+  '#ff5fa2',
+  '#7c5cff',
+  '#3ec9ff',
+  '#2fe6c0',
+]
 
 const FADE_IN_TIME = 0.15 // seconds -- avoids a hard pop-in at spawn; there's no fade-out anymore
 
+// A small fraction of particles render larger and brighter -- "hero"
+// sparkles that give the field some depth/focal points, matching the
+// reference's mix of tiny pinpricks and a few standout stars, rather than
+// every particle being the same size.
+const HERO_CHANCE = 0.12
+
 // Session 10 (client feedback: "water shaking off after a bath," not "bubbles
-// popping in anywhere"): the burst is now a gravity-affected spray-cone fanned
-// out around the current shake direction, rather than a soft lerp between an
-// idle drift and a directional stream.
-const SPRAY_HALF_ANGLE_RAD = 0.78 // ~45 degrees -- cone width of the flick
+// popping in anywhere"): the burst scatters outward in every direction, like
+// a firework, rather than a soft lerp between an idle drift and a directional
+// stream. Session 10.1 (real-device retest): an earlier version of this
+// biased the burst angle toward the current shake direction and added
+// gravity -- on a real left-right head shake that collapsed into two narrow
+// horizontal cones that then fell like dropped balls once gravity outlasted
+// the initial speed. Fully isotropic + no gravity reads as "scatter in all
+// directions," matching what was actually asked for.
 const SPRAY_SPEED_MIN = 140 // px/s at scale 1, before the energy multiplier
 const SPRAY_SPEED_MAX = 320 // px/s at scale 1, before the energy multiplier
-const GRAVITY_PX_S2 = 260 // downward arc during the burst phase
 
 function rand(min, max) {
   return min + Math.random() * (max - min)
@@ -28,29 +53,38 @@ function rand(min, max) {
 
 export const VaporVariant = {
   name: 'vapor',
-  emissionRate: 45,
+  // Session 10.2: the reference is a sparse constellation (~25-40 visible
+  // points), not a dense swarm -- particles never die (they hand off to
+  // particleSystem.js's idle-float phase), so a high rate against a long
+  // 10s capture used to saturate the pool cap and read as cluttered rather
+  // than sparse. Slowed down so the field builds gradually instead.
+  emissionRate: 10,
 
   createParticle(originX, originY, scale = 1, width = 0, height = 0, motionEnergy01 = 0, dirX = 0, dirY = 0) {
     // "Around the person, not on the face": sample from an ellipse offset
     // downward from the face anchor (toward where shoulders/chest would be),
     // sized off `scale` (a proxy for the face's on-screen size) rather than a
-    // small fixed-radius ring centered on the face itself.
+    // small fixed-radius ring centered on the face itself. Session 10.2:
+    // widened from Session 10's head-hugging ellipse -- now that the burst
+    // is isotropic and gravity-free (Session 10.1), a tighter spawn no
+    // longer needs to do all the work of keeping particles near the person;
+    // this wider region matches the reference's spread from above the head
+    // down past the shoulders.
     const faceSize = 0.12 * Math.min(width, height) * scale
     const ellipseX = originX
-    const ellipseY = originY + faceSize * 0.3
-    const radiusX = faceSize * rand(0.6, 1.1)
-    const radiusY = faceSize * rand(0.5, 0.9)
+    const ellipseY = originY + faceSize * 1.2
+    const radiusX = faceSize * rand(1.2, 2.2)
+    const radiusY = faceSize * rand(1.5, 3)
     const angle = rand(0, Math.PI * 2)
     const r = Math.sqrt(Math.random()) // uniform-density disc sampling, not clustered at center
     const spawnX = ellipseX + Math.cos(angle) * radiusX * r
     const spawnY = ellipseY + Math.sin(angle) * radiusY * r
 
-    // Fan out around the current shake direction like flung water droplets;
-    // fall back to a mostly-upward cone when there's no clear direction yet
-    // (the very start of a shake, before AuraRenderer.js has a motion vector).
-    const hasDirection = dirX !== 0 || dirY !== 0
-    const baseAngle = hasDirection ? Math.atan2(dirY, dirX) : -Math.PI / 2
-    const sprayAngle = baseAngle + rand(-SPRAY_HALF_ANGLE_RAD, SPRAY_HALF_ANGLE_RAD)
+    // Full 360-degree scatter -- each particle picks its own independent
+    // direction, so the burst as a whole reads as an omnidirectional flick
+    // rather than a stream aimed one way. `dirX`/`dirY` (the current shake
+    // direction) are intentionally unused here now -- see the file header.
+    const sprayAngle = rand(0, Math.PI * 2)
     // Energy multiplier has its own floor (0.7) so even a barely-there shake
     // still flicks with real force -- the "strong floor" is what keeps this
     // from ever reading as a weak dribble.
@@ -63,7 +97,6 @@ export const VaporVariant = {
       vx: Math.cos(sprayAngle) * speed,
       vy: Math.sin(sprayAngle) * speed,
       drag: rand(0.6, 1.1),
-      gravity: GRAVITY_PX_S2 * scale,
       age: 0,
 
       // Burst/drift phase length -- after this, particleSystem.js hands the
@@ -78,7 +111,10 @@ export const VaporVariant = {
       floatRadiusY: rand(4, 14) * scale,
       driftY: rand(2, 6) * scale, // slow continued upward drift once idle
 
-      radius: rand(2.5, 5) * scale,
+      // Session 10.2: mostly tiny pinpoint sparkles with a rare larger "hero"
+      // (was a single narrow range that read as uniform blobs, not the
+      // reference's mix of pinpricks and a few standout stars).
+      radius: (Math.random() < HERO_CHANCE ? rand(4, 6.5) : rand(1.2, 2.8)) * scale,
       baseAlpha: rand(0.55, 0.85),
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
     }
@@ -88,14 +124,13 @@ export const VaporVariant = {
     const alpha = p.baseAlpha * Math.min(1, p.age / FADE_IN_TIME)
     if (alpha <= 0) return
 
-    // Colored glow with a tighter falloff than the old bubble look (color
-    // held through 35% of the radius before fading), plus a small bright
-    // core -- the combination is what reads as a glinting sparkle rather
-    // than a soft translucent orb.
-    const glowRadius = p.radius * 2.2
+    // Tighter glow falloff than the old bubble look (color held through only
+    // 20% of the radius before fading) so this reads as a twinkling star
+    // point rather than a soft translucent orb.
+    const glowRadius = p.radius * 1.6
     const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius)
     gradient.addColorStop(0, p.color)
-    gradient.addColorStop(0.35, p.color)
+    gradient.addColorStop(0.2, p.color)
     gradient.addColorStop(1, 'transparent')
 
     ctx.globalAlpha = alpha

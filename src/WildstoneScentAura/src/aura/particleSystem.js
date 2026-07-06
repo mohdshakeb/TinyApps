@@ -24,49 +24,41 @@
 const MOTION_GATE_THRESHOLD = 0.02
 
 // Confidence floor to trust an anchor reading -- shared by the emission gate
-// above and the settled-particle follow logic below (same underlying
-// question: "is this anchor reading trustworthy enough to act on").
-const ANCHOR_TRUST_THRESHOLD = 0.05
+// below and (in AuraRenderer.js) the gate on accumulating a settled-particle
+// follow delta from raw anchor arrivals (same underlying question: "is this
+// anchor reading trustworthy enough to act on").
+export const ANCHOR_TRUST_THRESHOLD = 0.05
 
-// Fraction of the anchor's own frame-to-frame movement applied to settled
-// particles (Session 10: "particles should feel loosely attracted to the
-// person"). This is a *delta* nudge, not a lerp toward the anchor's absolute
-// position -- particles are scattered around the head, not on it, so nudging
-// by the anchor's own movement keeps each particle's relative offset intact
-// while the whole floating cluster drifts along with the person.
+// Fraction of the anchor's own raw movement applied to settled particles
+// (Session 10: "particles should feel loosely attracted to the person").
+// This is a *delta* nudge, not a lerp toward the anchor's absolute position
+// -- particles are scattered around the head, not on it, so nudging by the
+// anchor's own movement keeps each particle's relative offset intact while
+// the whole floating cluster drifts along with the person.
 const FOLLOW_GAIN = 0.25
 
-export function createParticleSystem(variant, { maxParticles = 400 } = {}) {
+// Session 10.2: lowered from 400 -- particles never die (see file header),
+// so the pool cap is effectively "how dense does the field get by the end of
+// a long capture." 400 read as a dense swarm; the reference this is matching
+// (docs/references/image.png) is a sparse constellation of ~25-40 points.
+export function createParticleSystem(variant, { maxParticles = 70 } = {}) {
   let particles = []
   let emitAccumulator = 0
   let clock = 0 // free-running time, used for the idle-float phase's bob cycle
-  let lastAnchorNormX = null
-  let lastAnchorNormY = null
 
-  function update(dt, anchor, width, height, motionEnergy01 = 0, motionDirX = 0, motionDirY = 0) {
+  // `followDxNorm`/`followDyNorm`: the anchor's raw movement (normalized 0-1
+  // display-space units) accumulated since the last call, computed by
+  // AuraRenderer.js from actual detection/pointer arrivals -- NOT derived
+  // here from the `anchor` param, which is the render-smoothed anchor and
+  // moves only a fraction of the way toward each real update per frame (the
+  // same dilution documented in AuraRenderer.js for the motion-energy
+  // signal). Using the smoothed value here made settled particles barely
+  // seem to follow at all.
+  function update(dt, anchor, width, height, motionEnergy01 = 0, motionDirX = 0, motionDirY = 0, followDxNorm = 0, followDyNorm = 0) {
     clock += dt
-    const anchorTrusted = anchor && anchor.confidence > ANCHOR_TRUST_THRESHOLD
-    const active = anchorTrusted && motionEnergy01 > MOTION_GATE_THRESHOLD && width && height
-
-    // Settled-particle follow nudge, computed once per frame (not once per
-    // particle). Gated on the anchor being trustworthy *this frame and last
-    // frame* -- if tracking was just lost or just regained (or, on Touch
-    // Canvas, the pointer released back to the neutral center anchor), there
-    // is no reliable "movement since last frame" to follow, so the nudge is
-    // zeroed and the last-seen position is cleared rather than left stale.
-    let followDx = 0
-    let followDy = 0
-    if (anchorTrusted && width && height) {
-      if (lastAnchorNormX !== null && lastAnchorNormY !== null) {
-        followDx = (anchor.x - lastAnchorNormX) * width * FOLLOW_GAIN
-        followDy = (anchor.y - lastAnchorNormY) * height * FOLLOW_GAIN
-      }
-      lastAnchorNormX = anchor.x
-      lastAnchorNormY = anchor.y
-    } else {
-      lastAnchorNormX = null
-      lastAnchorNormY = null
-    }
+    const active = anchor && anchor.confidence > ANCHOR_TRUST_THRESHOLD && motionEnergy01 > MOTION_GATE_THRESHOLD && width && height
+    const followDx = followDxNorm * width * FOLLOW_GAIN
+    const followDy = followDyNorm * height * FOLLOW_GAIN
 
     if (active) {
       emitAccumulator += variant.emissionRate * anchor.confidence * motionEnergy01 * dt
@@ -89,7 +81,6 @@ export function createParticleSystem(variant, { maxParticles = 400 } = {}) {
     for (const p of particles) {
       p.age += dt
       if (p.age < p.settleTime) {
-        p.vy += (p.gravity || 0) * dt
         const dragFactor = Math.max(0, 1 - p.drag * dt)
         p.vx *= dragFactor
         p.vy *= dragFactor
@@ -119,8 +110,6 @@ export function createParticleSystem(variant, { maxParticles = 400 } = {}) {
     particles = []
     emitAccumulator = 0
     clock = 0
-    lastAnchorNormX = null
-    lastAnchorNormY = null
   }
 
   return {

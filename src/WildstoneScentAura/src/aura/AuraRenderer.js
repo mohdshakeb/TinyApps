@@ -1,4 +1,4 @@
-import { createParticleSystem } from './particleSystem.js'
+import { createParticleSystem, ANCHOR_TRUST_THRESHOLD } from './particleSystem.js'
 
 const NEUTRAL_ANCHOR = { x: 0.5, y: 0.5, scale: 1, confidence: 0 }
 const SMOOTHING = 0.22 // per-frame lerp factor toward the latest anchor
@@ -52,6 +52,19 @@ export function createAuraRenderer(canvas, variant) {
   let motionDirX = 0
   let motionDirY = 0
 
+  // Settled-particle follow signal (Session 10.1): accumulated from raw
+  // anchor arrivals here, then drained into particleSystem.update once per
+  // render frame. Deliberately NOT derived from smoothedAnchor's per-frame
+  // lerp -- same dilution trap as the motion-energy signal above, and it
+  // made the follow effect read as "particles feel independent" on a real
+  // device since a single detection only nudges smoothedAnchor ~22% of the
+  // way there. `lastFollowAnchor` is only carried forward while the anchor
+  // stays trustworthy frame-to-frame, so a tracking gap or (on Touch Canvas)
+  // the release-to-neutral-center anchor can't produce one huge false delta.
+  let lastFollowAnchor = null
+  let followAccumDx = 0
+  let followAccumDy = 0
+
   function resize() {
     const dpr = window.devicePixelRatio || 1
     // Keep `width`/`height` (used by every draw call below) in CSS-pixel
@@ -88,6 +101,17 @@ export function createAuraRenderer(canvas, variant) {
     lastRawAnchor = anchor
     lastRawAnchorTime = now
     targetAnchor = anchor
+
+    const trusted = anchor.confidence > ANCHOR_TRUST_THRESHOLD
+    if (trusted) {
+      if (lastFollowAnchor) {
+        followAccumDx += anchor.x - lastFollowAnchor.x
+        followAccumDy += anchor.y - lastFollowAnchor.y
+      }
+      lastFollowAnchor = { x: anchor.x, y: anchor.y }
+    } else {
+      lastFollowAnchor = null
+    }
   }
 
   function frame(now) {
@@ -107,10 +131,27 @@ export function createAuraRenderer(canvas, variant) {
     const energy01 = Math.min(1, motionEnergy / ENERGY_MAX)
 
     ctx.clearRect(0, 0, width, height)
+    // Drain the raw follow accumulator into this frame's update, then reset
+    // it -- it represents "anchor movement since the last render frame,"
+    // not a running total.
+    const followDxNorm = followAccumDx
+    const followDyNorm = followAccumDy
+    followAccumDx = 0
+    followAccumDy = 0
     // Forcing energy to 0 while unarmed (rather than skipping `update`
     // entirely) still ages/floats existing particles normally -- only new
     // emission is gated.
-    particleSystem.update(dt, smoothedAnchor, width, height, armed ? energy01 : 0, motionDirX, motionDirY)
+    particleSystem.update(
+      dt,
+      smoothedAnchor,
+      width,
+      height,
+      armed ? energy01 : 0,
+      motionDirX,
+      motionDirY,
+      followDxNorm,
+      followDyNorm
+    )
 
     ctx.save()
     ctx.globalCompositeOperation = 'lighter' // cheap additive glow, no per-particle shadowBlur cost
@@ -128,6 +169,9 @@ export function createAuraRenderer(canvas, variant) {
     motionEnergy = 0
     motionDirX = 0
     motionDirY = 0
+    lastFollowAnchor = null
+    followAccumDx = 0
+    followAccumDy = 0
     if (!rafId) rafId = requestAnimationFrame(frame)
   }
 
