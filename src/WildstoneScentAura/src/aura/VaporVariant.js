@@ -13,12 +13,17 @@ const COLORS = ['#ff5fa2', '#7c5cff', '#3ec9ff', '#2fe6c0', '#ffcf5c', '#ffffff'
 
 const FADE_IN_TIME = 0.15 // seconds -- avoids a hard pop-in at spawn; there's no fade-out anymore
 
+// Session 10 (client feedback: "water shaking off after a bath," not "bubbles
+// popping in anywhere"): the burst is now a gravity-affected spray-cone fanned
+// out around the current shake direction, rather than a soft lerp between an
+// idle drift and a directional stream.
+const SPRAY_HALF_ANGLE_RAD = 0.78 // ~45 degrees -- cone width of the flick
+const SPRAY_SPEED_MIN = 140 // px/s at scale 1, before the energy multiplier
+const SPRAY_SPEED_MAX = 320 // px/s at scale 1, before the energy multiplier
+const GRAVITY_PX_S2 = 260 // downward arc during the burst phase
+
 function rand(min, max) {
   return min + Math.random() * (max - min)
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t
 }
 
 export const VaporVariant = {
@@ -32,27 +37,33 @@ export const VaporVariant = {
     // small fixed-radius ring centered on the face itself.
     const faceSize = 0.12 * Math.min(width, height) * scale
     const ellipseX = originX
-    const ellipseY = originY + faceSize * 2.5
-    const radiusX = faceSize * rand(2.5, 4)
-    const radiusY = faceSize * rand(3, 6)
+    const ellipseY = originY + faceSize * 0.3
+    const radiusX = faceSize * rand(0.6, 1.1)
+    const radiusY = faceSize * rand(0.5, 0.9)
     const angle = rand(0, Math.PI * 2)
     const r = Math.sqrt(Math.random()) // uniform-density disc sampling, not clustered at center
     const spawnX = ellipseX + Math.cos(angle) * radiusX * r
     const spawnY = ellipseY + Math.sin(angle) * radiusY * r
 
-    const coherence = motionEnergy01
-    const idleVx = rand(-10, 10) * scale
-    const idleVy = -rand(8, 20) * scale // slow upward drift, like rising mist
-    const streamSpeed = rand(60, 160) * scale
-    const streamVx = dirX * streamSpeed
-    const streamVy = dirY * streamSpeed - rand(10, 30) * scale // small upward bias even at full energy
+    // Fan out around the current shake direction like flung water droplets;
+    // fall back to a mostly-upward cone when there's no clear direction yet
+    // (the very start of a shake, before AuraRenderer.js has a motion vector).
+    const hasDirection = dirX !== 0 || dirY !== 0
+    const baseAngle = hasDirection ? Math.atan2(dirY, dirX) : -Math.PI / 2
+    const sprayAngle = baseAngle + rand(-SPRAY_HALF_ANGLE_RAD, SPRAY_HALF_ANGLE_RAD)
+    // Energy multiplier has its own floor (0.7) so even a barely-there shake
+    // still flicks with real force -- the "strong floor" is what keeps this
+    // from ever reading as a weak dribble.
+    const energyMultiplier = 0.7 + 0.3 * motionEnergy01
+    const speed = rand(SPRAY_SPEED_MIN, SPRAY_SPEED_MAX) * energyMultiplier * scale
 
     return {
       x: spawnX,
       y: spawnY,
-      vx: lerp(idleVx, streamVx, coherence),
-      vy: lerp(idleVy, streamVy, coherence),
+      vx: Math.cos(sprayAngle) * speed,
+      vy: Math.sin(sprayAngle) * speed,
       drag: rand(0.6, 1.1),
+      gravity: GRAVITY_PX_S2 * scale,
       age: 0,
 
       // Burst/drift phase length -- after this, particleSystem.js hands the

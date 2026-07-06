@@ -71,7 +71,7 @@ function scoreRound(events, durationSec) {
   return { score, bucket, meanAmplitude, reversalCount: events.length, roundDurationMs }
 }
 
-export function createShakeTracker({ onRoundComplete }) {
+export function createShakeTracker() {
   let elapsed = 0
   let prevX = null
   let referenceX = null
@@ -87,6 +87,7 @@ export function createShakeTracker({ onRoundComplete }) {
   // silently start a second round and overwrite the first score, which
   // contradicts "the first completed shake is what gets scored."
   let locked = false
+  let lockedResult = null
 
   function startRound() {
     roundActive = true
@@ -135,14 +136,24 @@ export function createShakeTracker({ onRoundComplete }) {
   }
 
   function completeRound() {
-    const result = scoreRound(reversalEvents, elapsed - roundStartTime)
+    lockedResult = scoreRound(reversalEvents, elapsed - roundStartTime)
     roundActive = false
     direction = 0
     referenceX = prevX
     extremeX = prevX
     reversalEvents = []
     locked = true
-    onRoundComplete(result)
+  }
+
+  // Pull-based, mirroring the polling model videoCapture.js already uses for
+  // `getScoreResult` -- called every recorded frame so the score burned into
+  // the video can climb live from the moment the shake begins, not only
+  // appear once the round locks (Session 10: the score used to only be
+  // visible for the last fraction of the 10s clip).
+  function getScore() {
+    if (locked) return { ...lockedResult, locked: true }
+    if (roundActive) return { ...scoreRound(reversalEvents, elapsed - roundStartTime), locked: false }
+    return null
   }
 
   function update(dt, anchor) {
@@ -183,7 +194,8 @@ export function createShakeTracker({ onRoundComplete }) {
     lastMovementTime = 0
     reversalEvents = []
     locked = false
+    lockedResult = null
   }
 
-  return { update, reset }
+  return { update, reset, getScore }
 }

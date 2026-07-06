@@ -28,12 +28,7 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   const renderer = createAuraRenderer(auraCanvas, VaporVariant)
 
   let armed = false
-  let lockedResult = null // set once shakeTracker's round completes; read every recorded frame
-  const shakeTracker = createShakeTracker({
-    onRoundComplete: (result) => {
-      lockedResult = result
-    },
-  })
+  const shakeTracker = createShakeTracker()
   let lastDetectionTime = 0
   let activeRecording = null
 
@@ -47,7 +42,6 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
   function releaseAura() {
     if (armed || !videoCaptureReady) return
     armed = true
-    lockedResult = null
     lastDetectionTime = 0 // don't diff against a stale idle-era timestamp
     shakeTracker.reset()
     renderer.setArmed(true)
@@ -60,7 +54,7 @@ export function mountLiveAuraScreen(root, { videoEl, onCapture }) {
       height: auraCanvas.height,
       videoEl,
       auraCanvas,
-      getScoreResult: () => lockedResult,
+      getScoreResult: () => shakeTracker.getScore(),
     })
     activeRecording.done
       .then((blob) => onCapture(blob))

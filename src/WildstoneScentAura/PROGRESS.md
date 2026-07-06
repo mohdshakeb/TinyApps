@@ -294,3 +294,29 @@ Full design in `Planning/WildstoneScentAura_Plan.md` (Session 9) and `Planning/C
 4. Whether `MAX_ROUND_MS = 9500` and the idle/armed transition feel right against a real head-shake's timing — these are starting estimates, same as every other tuning constant in this project.
 
 **Next:** real-device retest (Android) per the plan's Session 9 done-criteria — confirm no particles/recording before tapping the button, colorful person-scaled floating particles, a score+watermark burned into the saved video, and Retry landing back on idle.
+
+---
+
+## Session 10 — Aura Feel Fixes (head-attraction, water-flick burst, live score, client feedback)
+
+**Date:** 2026-07-06
+
+Full design, root-cause analysis, and exact constants in `Planning/Session10_AuraFeelFixes_Plan.md`. Real-device retest of Session 9 surfaced three feel problems, all fixed this session:
+
+**Done:**
+- `src/aura/particleSystem.js` — added `ANCHOR_TRUST_THRESHOLD` (0.05, promoted from the existing inline literal, now shared by the emission gate and the new follow logic) and `FOLLOW_GAIN` (0.25). Once per frame, if the anchor is trustworthy this frame and was trustworthy last frame too, computes `followDx/Dy` from the anchor's own pixel movement since last frame; if trust is lost (or regained, or Touch Canvas releases to its neutral center anchor), the last-seen anchor position is cleared instead of left stale, zeroing the nudge for that gap. In the settled/idle branch only, `p.settleX/settleY` get nudged by `followDx/Dy` every frame after the initial freeze — burst-phase particles are untouched by this. Burst-phase particles also gained one line, `p.vy += (p.gravity || 0) * dt`, applied before the existing drag/position integration, so a variant-supplied `p.gravity` now produces a real arc.
+- `src/aura/VaporVariant.js` — spawn ellipse tightened from a wide person-sized region (`faceSize*2.5` offset, `radiusX ∈ [2.5,4]×faceSize`, `radiusY ∈ [3,6]×faceSize`) down to a tight region hugging the head (`faceSize*0.3` offset, `radiusX ∈ [0.6,1.1]×faceSize`, `radiusY ∈ [0.5,0.9]×faceSize`). The old idle/stream velocity lerp is gone, replaced by a spray-cone "flick": base angle from the current shake direction (`atan2(dirY, dirX)`), falling back to a mostly-upward cone (`-90°`) when there's no clear direction yet, fanned by `± SPRAY_HALF_ANGLE_RAD` (~45°). Speed is `rand(SPRAY_SPEED_MIN, SPRAY_SPEED_MAX)` (140–320 px/s at scale 1) times an energy multiplier with its own floor (`0.7 + 0.3×energy01`) so a barely-there shake still flicks with real force. Each particle now carries `p.gravity = GRAVITY_PX_S2 * scale` (260 px/s²) for `particleSystem.js`'s new gravity line.
+- `src/aura/shakeTracker.js` — dropped the `onRoundComplete` push callback; `createShakeTracker()` is now zero-argument. Added pull-based `getScore()`: returns the frozen `{ ...lockedResult, locked: true }` once locked, a freshly-recomputed `{ ...scoreRound(...), locked: false }` while a round is active, or `null` before any round has started. `completeRound()` now stores into an internal `lockedResult` instead of firing a callback.
+- `src/screens/LiveAuraScreen.js` — simplified to match: `createShakeTracker()` with no options, deleted the `lockedResult` closure variable, `getScoreResult: () => shakeTracker.getScore()` instead of reading a locked-only closure variable.
+- `src/ui/ScoreOverlay.js` — the score number now renders and updates on every call where `result` is non-null (i.e. from the moment the round starts, not just once locked); the verdict/bucket line is now gated on `result.locked === true` so it doesn't flash a premature verdict mid-shake.
+
+**Verified (desktop/headless, not yet real-device):**
+- `npm run test:unit` (9/9, unchanged), `npm run build`, `npx playwright test` (2/2, unmodified fallback/share specs) all green.
+
+**Not yet real-device confirmed** (same gap pattern as every prior visual-tuning session) — this is the primary open item:
+1. Whether floating particles visibly drift with head movement now (`FOLLOW_GAIN = 0.25`) without either feeling static (too low) or overshooting/lagging oddly (too high).
+2. Whether the tightened spawn ellipse + spray-cone + gravity actually reads as "water flicking off after a shake" rather than the old "bubbles popping in" look — `GRAVITY_PX_S2`, `SPRAY_SPEED_MIN/MAX`, and `SPRAY_HALF_ANGLE_RAD` are all explicit starting estimates.
+3. Whether the live-updating score number is legible/well-timed against real composited video, and that the verdict text appearing only at lock doesn't feel like a jarring pop-in.
+4. Touch Canvas fallback recheck — confirm no particles snap toward the neutral center anchor on pointer release, and the burst still reads fine at `scale: 1`.
+
+**Next:** real-device retest per `Planning/Session10_AuraFeelFixes_Plan.md`'s Verification section, then proceed to Session 11 (bundle budget + load-perf pass) once the feel is confirmed.
